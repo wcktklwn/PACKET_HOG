@@ -42,6 +42,22 @@ Modules (Seeed XIAO ESP32-C5), antennas and fan not included. Outside the US, me
 
 **Known issue:** some nodes drop out with certain off-brand USB cables or power banks. Cause not yet measured; V2 does not claim to fix it. Use a decent USB-C cable and a supply that can deliver 5V at 3A.
 
+## PacketHog-18
+
+Unreleased 18-socket layout in `hardware/PacketHog-18/`. PacketHog-V2 above is unchanged and is still the board for sale. This board has not been fabricated or powered.
+
+18 XIAO ESP32-C5 sockets, 2 rows of 9. Nodes 1–9 run along the top edge and 10–18 along the bottom, on the same 35 mm SMA pitch as V2. Outline is 330.1 mm × 86.1 mm, 1.6 mm, 2-layer. The V2 case does not fit, and there is no case for this board. Seat each module the same way as V2: USB-C toward the nearby capacitor, the same direction the board USB connector (J19) faces.
+
+The USB-C input is the V2 circuit, shifted to the right edge: 5.1 kΩ on CC1/CC2, series Schottky, PTC fuse. That path cannot feed 18 radios. The input for a full array is J20, a Phoenix MKDS 1,5/2-5.08 screw terminal on the left. Square pad is GND, round pad is VIN, and the wire openings face the board edge. F2 is a Littelfuse 0451010, a 10 A very-fast Nano2 fuse, in series with Q1, an onsemi NTMFS002P03P8Z P-channel MOSFET. Its Rds(on) maximum is 2.3 mΩ at Vgs = −4.5 V, about 18 mV and 0.15 W at 8 A using that datasheet maximum. The package is CASE 506EZ. The footprint on the board is the library SO-8 FL land ONSemi_SO-8FL_488AA, which matches the 506EZ recommended land. The exposed drain pad is not a hand-solder package.
+
+Q2, an MMBT3904, pulls the gate down only while the fused input is present, so the FET turns on for the screw terminal and stays off when only USB is connected. USB then cannot backfeed into J20, and the USB Schottky stays reverse-biased while the FET drop is tens of millivolts. D4, a BZT52C12, clamps the gate-source voltage. It does not clamp the input. This is not over-voltage protection: the body diode and the channel both pass a higher VIN onto the 5 V rail. The silk says 5V ONLY. A 12 V supply on J20 would destroy the modules. Reverse polarity on J20 leaves the FET off.
+
++5 V leaves the FET on a 2.8 mm spine, then a 4.0 mm bus along the top (ending at x = 392.85 mm) and a 3.2 mm bus along the bottom (ending at x = 386 mm). Past that, the original 1 mm trace still feeds the last socket. That segment carries one node. None of this drop or heating has been measured, and the board has not been powered.
+
+On J19 the four stacked GND lands, A1, A12, B1, and B12, are 1.08 mm long. GCT's recommended land is 1.15 mm. Each land is 0.07 mm shorter on the end next to the Ø0.65 locating peg, and the far end stays on the datasheet coordinate, so those holes meet the 0.25 mm clearance rule. The signal and VBUS pads stay at 1.15 mm. PacketHog-V2 still uses the 1.15 mm lands, so J11 still has those four hole-clearance errors.
+
+The ground zone was refilled in KiCad 10.0.8 and it covers the new columns and the inlet. DRC reports no unconnected nets and no errors. Warnings remain: 79 library-footprint notes, 55 silk-over-copper items, 4 library-footprint mismatches, 3 silk overlaps, and one dangling end on the wide bottom bus. The schematic in that folder is still the 10-node drawing. Do not update the PCB from it. The PCB is the netlist.
+
 ## Status of what's tested
 
 | Component | Status |
