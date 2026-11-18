@@ -1982,7 +1982,7 @@
 			(uuid "2da4469b-e8b4-4727-8c57-af59e35d907d")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J7")
 					(unit 1)
@@ -2064,7 +2064,7 @@
 			(uuid "07bd47d9-3046-4f20-afce-3f35f2cc8d4b")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J5")
 					(unit 1)
@@ -2146,7 +2146,7 @@
 			(uuid "d4e6691a-93ba-4cfb-88b3-ca48d5050305")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C11")
 					(unit 1)
@@ -2228,7 +2228,7 @@
 			(uuid "2d840fa0-c330-4fa7-a53e-3736fad52f30")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C18")
 					(unit 1)
@@ -2310,7 +2310,7 @@
 			(uuid "d26e2974-225e-4b21-8fd7-7ef6c702f457")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J6")
 					(unit 1)
@@ -2407,7 +2407,7 @@
 			(uuid "9707229d-d2e9-4eca-bd9a-c4986477c216")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H2A")
 					(unit 1)
@@ -2504,7 +2504,7 @@
 			(uuid "98d7f88e-f97e-4be9-9da8-1aa710b01cc6")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H1A")
 					(unit 1)
@@ -2586,7 +2586,7 @@
 			(uuid "3f2909ca-2668-4870-860b-eb96d01f7cd7")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C8")
 					(unit 1)
@@ -2668,7 +2668,7 @@
 			(uuid "0169aa72-b81a-4d04-983d-0e0feb59eb03")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J4")
 					(unit 1)
@@ -2750,7 +2750,7 @@
 			(uuid "efe6c931-6827-40e9-93af-37c1be5d99fb")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C6")
 					(unit 1)
@@ -2832,7 +2832,7 @@
 			(uuid "92ff644a-e77e-48ea-aa4c-4f56c8a5fde4")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C12")
 					(unit 1)
@@ -2929,7 +2929,7 @@
 			(uuid "7676bbc1-6e14-49b1-92ba-cd43ab1904a4")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H8A")
 					(unit 1)
@@ -3026,7 +3026,7 @@
 			(uuid "0ef811db-c5c4-4593-aa1a-ac8ff210304c")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H3A")
 					(unit 1)
@@ -3108,7 +3108,7 @@
 			(uuid "eaf71ade-2ba7-4e68-8120-9caa25c743e9")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "R2")
 					(unit 1)
@@ -3205,7 +3205,7 @@
 			(uuid "57cbed30-2c8b-4457-ad01-72e277296373")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H4A")
 					(unit 1)
@@ -3287,7 +3287,7 @@
 			(uuid "0c74c254-4848-4e4c-99bd-763cc4426084")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J8")
 					(unit 1)
@@ -3369,7 +3369,7 @@
 			(uuid "1def4850-9967-477b-93f6-97c7ec969ce1")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "R1")
 					(unit 1)
@@ -3451,7 +3451,7 @@
 			(uuid "fade692a-c0f8-4067-b5be-0188cd51a87a")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C13")
 					(unit 1)
@@ -3548,7 +3548,7 @@
 			(uuid "2998b5ba-99d3-444a-9ef9-c34373cbbf1d")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H9A")
 					(unit 1)
@@ -3630,7 +3630,7 @@
 			(uuid "591f92f9-f34b-45ec-9e10-f9ffbeba69b0")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C17")
 					(unit 1)
@@ -3727,7 +3727,7 @@
 			(uuid "b3301ca4-f9e5-4a5d-bf5d-13ca047a07da")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H2B")
 					(unit 1)
@@ -3809,7 +3809,7 @@
 			(uuid "2ca02a38-2d6c-4f41-b83b-3173206d1486")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C5")
 					(unit 1)
@@ -3891,7 +3891,7 @@
 			(uuid "1dface9b-8e91-4323-9e4e-7a2284bbe397")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C10")
 					(unit 1)
@@ -3988,7 +3988,7 @@
 			(uuid "b9e1efd4-47fb-4784-b7b9-8e568be48ac0")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H9B")
 					(unit 1)
@@ -4070,7 +4070,7 @@
 			(uuid "f58c8d3c-0dbc-4a2b-a5f8-4789332cd75a")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C1")
 					(unit 1)
@@ -4167,7 +4167,7 @@
 			(uuid "7406a1f2-205a-4223-9a17-f3bd4d48e2b8")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H5B")
 					(unit 1)
@@ -4264,7 +4264,7 @@
 			(uuid "36a43153-2aec-4044-87f2-c1c008492a5f")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H6B")
 					(unit 1)
@@ -4361,7 +4361,7 @@
 			(uuid "fa561146-203f-4c8d-86bd-70bf783e8614")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H10A")
 					(unit 1)
@@ -4443,7 +4443,7 @@
 			(uuid "d43cf0d0-03bb-4cdd-9467-bf91c87aaa18")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J2")
 					(unit 1)
@@ -4540,7 +4540,7 @@
 			(uuid "46df6038-2fe4-4b93-802c-938519f56497")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H6A")
 					(unit 1)
@@ -4637,7 +4637,7 @@
 			(uuid "4b79a94d-c171-45e5-8711-98c636fcaa22")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H4B")
 					(unit 1)
@@ -4762,7 +4762,7 @@
 			(uuid "724fa0fc-9ae5-4e06-8db4-c755fe1e66cb")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J11")
 					(unit 1)
@@ -4859,7 +4859,7 @@
 			(uuid "ecc728b6-0394-454d-a42f-de4e30310d5a")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H5")
 					(unit 1)
@@ -4956,7 +4956,7 @@
 			(uuid "808c1e37-be3a-4d62-b107-7b77c34308eb")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H10B")
 					(unit 1)
@@ -5038,7 +5038,7 @@
 			(uuid "fe64e3a2-d8a1-4446-a144-50596125c3ac")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C16")
 					(unit 1)
@@ -5120,7 +5120,7 @@
 			(uuid "b62e09c5-cfc8-4fb5-9162-240397fa000c")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C9")
 					(unit 1)
@@ -5202,7 +5202,7 @@
 			(uuid "234853ab-3ad2-40e3-aa06-83ee46af7143")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C2")
 					(unit 1)
@@ -5284,7 +5284,7 @@
 			(uuid "f1cb13a6-7c78-40d8-9a0d-9044466a1587")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J10")
 					(unit 1)
@@ -5366,7 +5366,7 @@
 			(uuid "b71e537f-2506-47ee-a885-a56e8b604f77")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C4")
 					(unit 1)
@@ -5448,7 +5448,7 @@
 			(uuid "69056572-aed5-4982-97b4-519c8e026d44")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C14")
 					(unit 1)
@@ -5545,7 +5545,7 @@
 			(uuid "17a5b1f3-aa60-4847-8718-e6e49fd5ca42")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H7B")
 					(unit 1)
@@ -5628,7 +5628,7 @@
 			(uuid "73e7e21d-2f88-4361-acd1-09bcbb7cfed9")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "F1")
 					(unit 1)
@@ -5725,7 +5725,7 @@
 			(uuid "21a1c168-61f4-4d9a-9ce6-9e3821fd0cf6")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H1A")
 					(unit 1)
@@ -5822,7 +5822,7 @@
 			(uuid "67d1b445-2b31-4892-93e4-c518423b1154")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H8B")
 					(unit 1)
@@ -5919,7 +5919,7 @@
 			(uuid "d8628486-20ed-459e-86e4-33ff631a8175")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H7A")
 					(unit 1)
@@ -6001,7 +6001,7 @@
 			(uuid "3df68575-5754-4621-b19c-73f7f38c2fa9")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J9")
 					(unit 1)
@@ -6083,7 +6083,7 @@
 			(uuid "2bf51ca8-3d0b-4bcf-b4a7-c1a41ea8294c")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C3")
 					(unit 1)
@@ -6165,7 +6165,7 @@
 			(uuid "17f947aa-d708-491c-8b91-d0f866644430")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J3")
 					(unit 1)
@@ -6247,7 +6247,7 @@
 			(uuid "d14c4191-f4de-4b11-9156-f3f8f547e7dc")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "J1")
 					(unit 1)
@@ -6329,7 +6329,7 @@
 			(uuid "80373983-cdfe-4dbe-aeb7-57bf02712362")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C15")
 					(unit 1)
@@ -6411,7 +6411,7 @@
 			(uuid "624070a9-8208-461a-a1cc-f6f2cc70179f")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "C7")
 					(unit 1)
@@ -6508,7 +6508,7 @@
 			(uuid "19d5a449-a720-4bc1-87d3-495f43bdec17")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "H3B")
 					(unit 1)
@@ -6588,7 +6588,7 @@
 			(uuid "651721c8-c31c-4baf-b5d2-3219c97591f1")
 		)
 		(instances
-			(project "PacketHog-18"
+			(project "PacketHog-20"
 				(path "/dd03acd6-3792-424c-94c0-c84bee0875aa"
 					(reference "D1")
 					(unit 1)
@@ -6596,7 +6596,7 @@
 			)
 		)
 	)
-	(text "PacketHog-18 PCB is the routed 18-node board. This sheet is the original 10-node drawing and is not the netlist. Do not update the PCB from this schematic."
+	(text "PacketHog-20 PCB is the routed 20-node board. This sheet is the original 10-node drawing and is not the netlist. Do not update the PCB from this schematic."
 		(exclude_from_sim no)
 		(at 20 12 0)
 		(effects
@@ -6605,7 +6605,7 @@
 			)
 			(justify left top)
 		)
-		(uuid "ee80b90e-3bbc-4a9b-ae7a-90da0ceb166f")
+		(uuid "2f833ea5-dbaf-4a7f-9c2b-5b2bf51abc4c")
 	)
 	(sheet_instances
 		(path "/"

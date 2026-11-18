@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Build PacketHog-18 from the PacketHog-V2 PCB.
+"""Build PacketHog-20 from the PacketHog-V2 PCB.
 
-10 XIAO sockets become 18 (2 rows x 9). The original layout shifts right by
-four column pitches and four cloned columns fill the left side. The V2 USB-C
-circuit is unchanged and cannot run 18 radios. J19's four GND lands are
+10 XIAO sockets become 20 (2 rows x 10). The original layout shifts right by
+five column pitches and five cloned columns fill the left side. The V2 USB-C
+circuit is unchanged and cannot run 20 radios. J21's four GND lands are
 0.07 mm shorter on the locating-peg end so they clear the 0.25 mm hole rule.
-The left margin is a 5 V screw terminal, a 10 A fuse, and a P-channel
-ideal-diode OR onto the +5 V buses.
+The inlet is a 5 V screw terminal, a 10 A fuse, and a P-channel ideal-diode
+OR onto the +5 V buses. Left of that inlet is a 2S pack connector, an IP2326
+boost charger fed from the fused input, and a TPS56837 buck OR'd onto +5V.
 """
 
 from __future__ import annotations
@@ -20,18 +21,22 @@ from pathlib import Path
 
 ROOT = Path("/Users/wcktklwn/Documents/scripts/PACKET_HOG")
 SRC = ROOT / "hardware" / "PacketHog-V2" / "PacketHog-V2.kicad_pcb"
-DEST_DIR = ROOT / "hardware" / "PacketHog-18"
-DEST_PCB = DEST_DIR / "PacketHog-18.kicad_pcb"
+DEST_DIR = ROOT / "hardware" / "PacketHog-20"
+DEST_PCB = DEST_DIR / "PacketHog-20.kicad_pcb"
 
-DX_SHIFT = 140.0  # 4 columns * 35 mm
+DX_SHIFT = 175.0  # 5 columns * 35 mm
 COL_PITCH = 35.0
 TEMPLATE_SMA_X = 135.0
-NEW_SMA_X = [100.0, 135.0, 170.0, 205.0]  # final, pre-shift coordinates
+NEW_SMA_X = [100.0, 135.0, 170.0, 205.0, 240.0]  # final, pre-shift coordinates
 BUS_TOP_Y = 97.0
 BUS_BOT_Y = 124.5
+# Outline. The inlet stays where V2/18 put it. The bay is the new left margin.
+BOARD_L = 8.0
+BOARD_T = 54.45
+BOARD_B = 140.55
 # 1 oz external copper. The spine carries the whole array; the buses taper
-# as columns tap off. 4.0 / 3.2 mm is the width that still clears the headers,
-# C35, and the left board edge.
+# as columns tap off. 4.0 / 3.2 mm is the width that still clears the headers.
+# The spine is the same 2.8 mm as the 18-node board. It is not re-sized here.
 TOP_BUS_W = 4.0
 BOT_BUS_W = 3.2
 SPINE_X = 86.6
@@ -286,9 +291,9 @@ def node_number_from_ref(ref):
 
 def mapped_node(n):
     if 1 <= n <= 5:
-        return n + 4
+        return n + 5
     if 6 <= n <= 10:
-        return n + 8
+        return n + 10
     return None
 
 
@@ -297,7 +302,7 @@ def rename_existing(board):
 
     def map_ref(ref):
         if ref == "J11":
-            return "J19"
+            return "J21"
         prefix, n, suffix = node_number_from_ref(ref)
         if n is None or prefix not in ("H", "J", "K"):
             return ref
@@ -403,12 +408,13 @@ def clone_columns(board, templates, template_segs, template_vias):
     for i, sma_x in enumerate(NEW_SMA_X):
         dx = sma_x - TEMPLATE_SMA_X
         top_n = i + 1
-        bot_n = i + 10
+        # 11–15. Nodes 6–10 and 16–20 are the shifted originals.
+        bot_n = i + 11
         cap_ids = {
             "top10": f"C{19 + i}",
-            "top1": f"C{23 + i}",
-            "bot10": f"C{27 + i}",
-            "bot1": f"C{31 + i}",
+            "top1": f"C{24 + i}",
+            "bot10": f"C{29 + i}",
+            "bot1": f"C{34 + i}",
         }
         for src in templates:
             fp = copy.deepcopy(src)
@@ -560,6 +566,18 @@ def route_orth(x1, y1, x2, y2, width, net, prefer="v"):
     return [seg(x1, y1, x2, y1, width, net), seg(x2, y1, x2, y2, width, net)]
 
 
+def wire(pts, width, net, layer="F.Cu"):
+    """Orthogonal polyline. A diagonal is a placement bug, not a route."""
+    out = []
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        if abs(x1 - x2) < 1e-6 and abs(y1 - y2) < 1e-6:
+            continue
+        if abs(x1 - x2) > 1e-4 and abs(y1 - y2) > 1e-4:
+            raise RuntimeError(f"diagonal {net} ({x1:.2f},{y1:.2f})-({x2:.2f},{y2:.2f})")
+        out.append(seg(x1, y1, x2, y2, width, net, layer))
+    return out
+
+
 def set_pad_net(fp, number, net):
     for pad in kids(fp, "pad"):
         if pad[1].t == number:
@@ -624,7 +642,7 @@ def make_power_terminal():
     fp = prep_lib_fp(
         fp,
         "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal",
-        "J20",
+        "J22",
         "MKDS-1,5/2-5.08",
         80.5,
         76.0,
@@ -703,9 +721,9 @@ def bus_end(board, y, width, x0):
 
 
 def add_power(board, fan_fp, c1_fp):
-    """External 5 V inlet sized for 18 nodes.
+    """External 5 V inlet. The geometry matches the 18-node board.
 
-    J20 screw terminal -> F2 10 A fuse -> Q1 drain. Q1 is a P-channel with
+    J22 screw terminal -> F2 10 A fuse -> Q1 drain. Q1 is a P-channel with
     source on +5V. Q2 pulls the gate down only while VIN_F is present, so a
     USB-only rail cannot turn the FET on and the body diode stays reverse
     biased. This is not over-voltage protection: a VIN above 5 V still reaches
@@ -715,7 +733,7 @@ def add_power(board, fan_fp, c1_fp):
     """
     del fan_fp
     taken = {prop(fp, "Reference") for fp in kids(board, "footprint")}
-    for ref in ("J20", "F2", "Q1", "Q2", "R3", "R4", "R5", "R6", "D4", "C35"):
+    for ref in ("J22", "F2", "Q1", "Q2", "R3", "R4", "R5", "R6", "D4", "C39"):
         if ref in taken:
             raise RuntimeError(f"power ref {ref} already on the board")
 
@@ -830,15 +848,15 @@ def add_power(board, fan_fp, c1_fp):
     parts.append(r6)
     c35 = copy.deepcopy(c1_fp)
     retarget_uuids(c35)
-    set_prop(c35, "Reference", "C35")
-    # y=128 clears MH2's courtyard. The gate parts sit above this courtyard.
+    set_prop(c35, "Reference", "C39")
+    # y=128 clears the inlet parts. The gate parts sit above this courtyard.
     set_placement(c35, 80.5, 128.0, 0)
     parts.append(c35)
     for p in parts:
         board.append(p)
 
     tracks = []
-    vin = find_pad(board, "J20", "2")
+    vin = find_pad(board, "J22", "2")
     f_in = find_pad(board, "F2", "1")
     f_out = find_pad(board, "F2", "2")
     tracks += [seg(vin[0], vin[1], f_in[0], f_in[1], 2.0, "VIN")]
@@ -926,33 +944,35 @@ def add_power(board, fan_fp, c1_fp):
     bot_end = bus_end(board, BUS_BOT_Y, BOT_BUS_W, SPINE_X)
     # Keep a millimetre of overlap with the shifted 1 mm V2 buses (they begin
     # near x=246.5) and stop before the USB cluster the scanner just found.
-    top_end = min(top_end, 393.0)
-    bot_end = min(bot_end, 386.0)
+    top_end = min(top_end, 428.0)
+    bot_end = min(bot_end, 421.0)
     print(f"+5V bus ends top x={top_end:.2f} bottom x={bot_end:.2f}")
-    if top_end < 300 or bot_end < 300:
+    if top_end < 360 or bot_end < 360:
         raise RuntimeError("wide +5V bus was stopped short of the array")
     tracks += [seg(SPINE_X, BUS_TOP_Y, SPINE_X, BUS_BOT_Y, SPINE_W, "+5V")]
     tracks += [seg(SPINE_X, BUS_TOP_Y, top_end, BUS_TOP_Y, TOP_BUS_W, "+5V")]
-    c_pos = find_pad(board, "C35", "1")
-    c_neg = find_pad(board, "C35", "2")
+    c_pos = find_pad(board, "C39", "1")
+    c_neg = find_pad(board, "C39", "2")
     if c_pos[4] != "+5V":
         c_pos, c_neg = c_neg, c_pos
-    # End cap of a 3.2 mm trace begun at the cap pad stays inside the board edge.
-    tracks += [seg(c_pos[0], BUS_BOT_Y, bot_end, BUS_BOT_Y, BOT_BUS_W, "+5V")]
+    # The bottom bus starts in the bay so the buck OR can land on it, then
+    # runs through the bulk cap and out to the array.
+    bot_x0 = 62.0
+    tracks += [seg(bot_x0, BUS_BOT_Y, bot_end, BUS_BOT_Y, BOT_BUS_W, "+5V")]
     tracks += [seg(c_pos[0], c_pos[1], c_pos[0], BUS_BOT_Y, 0.8, "+5V")]
 
     for i, sma_x in enumerate(NEW_SMA_X):
         top_n = i + 1
-        bot_n = i + 10
+        bot_n = i + 11
         ptop = find_pad(board, f"H{top_n}B", "7")
         pbot = find_pad(board, f"H{bot_n}B", "7")
         tracks += [seg(ptop[0], ptop[1], ptop[0], BUS_TOP_Y, SPUR_W, "+5V")]
         tracks += [seg(pbot[0], pbot[1], pbot[0], BUS_BOT_Y, SPUR_W, "+5V")]
         for cref, by in (
             (f"C{19 + i}", BUS_TOP_Y),
-            (f"C{23 + i}", BUS_TOP_Y),
-            (f"C{27 + i}", BUS_BOT_Y),
-            (f"C{31 + i}", BUS_BOT_Y),
+            (f"C{24 + i}", BUS_TOP_Y),
+            (f"C{29 + i}", BUS_BOT_Y),
+            (f"C{34 + i}", BUS_BOT_Y),
         ):
             cpad = find_pad(board, cref, "1")
             tracks += [seg(cpad[0], cpad[1], cpad[0], by, SPUR_W, "+5V")]
@@ -968,20 +988,838 @@ def add_power(board, fan_fp, c1_fp):
     return tracks, labels
 
 
+def move_mounting_holes(board):
+    """Park the corner holes on the new left edge. The inlet is not their home."""
+    for fp in kids(board, "footprint"):
+        ref = prop(fp, "Reference")
+        if ref == "MH1":
+            set_placement(fp, BOARD_L + 4.55, BOARD_T + 4.55)
+        elif ref == "MH2":
+            set_placement(fp, BOARD_L + 4.55, BOARD_B - 4.55)
+
+
+def _rratio(sx, sy):
+    small = min(sx, sy)
+    if small <= 0:
+        return 0.25
+    return min(0.25, 0.05 / small)
+
+
+def _smd_pad(number, px, py, sx, sy, paste=None):
+    node = [
+        A("pad"),
+        A(str(number), True),
+        A("smd"),
+        A("roundrect"),
+        [A("at"), A(fmt(px)), A(fmt(py))],
+        [A("size"), A(fmt(sx)), A(fmt(sy))],
+        [A("layers"), A("F.Cu", True), A("F.Mask", True), A("F.Paste", True)],
+        [A("roundrect_rratio"), A(fmt(_rratio(sx, sy)))],
+    ]
+    if paste is not None:
+        node.append([A("solder_paste_margin_ratio"), A(fmt(paste))])
+    node.append([A("uuid"), A(new_uuid(), True)])
+    return node
+
+
+def make_tps56837(ref, value, x, y, ang=0):
+    """RPA0010A land, datasheet 4224047 rev A, footprint rotation 0 = top view.
+
+    Pin 8 is four copper pieces with one pad number. Pads 6 and 9 are the
+    only ones the stencil drawing shrinks (89% area).
+    """
+    paste = -0.0566
+    pads = [
+        _smd_pad("1", -0.75, 1.40, 0.25, 0.60),
+        _smd_pad("2", -0.25, 1.40, 0.25, 0.60),
+        _smd_pad("3", 0.25, 1.40, 0.25, 0.60),
+        _smd_pad("4", 0.75, 1.40, 0.25, 0.60),
+        _smd_pad("5", 1.40, 0.93, 0.60, 0.25),
+        _smd_pad("6", 0.85, -0.37, 1.70, 0.25, paste),
+        _smd_pad("7", 1.40, -0.87, 0.60, 0.25),
+        # Pin 8 spine first, so find_pad returns a point a track can hit.
+        _smd_pad("8", -0.65, -0.95, 2.10, 0.40),
+        _smd_pad("8", -0.75, -1.43, 0.25, 0.56),
+        _smd_pad("8", -0.25, -1.43, 0.25, 0.56),
+        _smd_pad("8", 0.25, -1.43, 0.25, 0.56),
+        _smd_pad("9", -0.65, 0.205, 2.10, 0.40, paste),
+        _smd_pad("10", -1.40, 0.93, 0.60, 0.25),
+    ]
+    cy = 2.15
+    fp = [
+        A("footprint"),
+        A("Package_DFN_QFN:TPS56837_RPA0010A", True),
+        [A("version"), A("20260206")],
+        [A("generator"), A("packethog20", True)],
+        [A("layer"), A("F.Cu", True)],
+        [A("uuid"), A(new_uuid(), True)],
+        [A("at"), A(fmt(x)), A(fmt(y)), A(fmt(ang))],
+        [
+            A("property"),
+            A("Reference", True),
+            A(ref, True),
+            [A("at"), A("0"), A("-2.9"), A("0")],
+            [A("layer"), A("F.SilkS", True)],
+            [A("effects"), [A("font"), [A("size"), A("0.8"), A("0.8")], [A("thickness"), A("0.12")]]],
+        ],
+        [
+            A("property"),
+            A("Value", True),
+            A(value, True),
+            [A("at"), A("0"), A("2.9"), A("0")],
+            [A("layer"), A("F.Fab", True)],
+            [A("effects"), [A("font"), [A("size"), A("0.8"), A("0.8")], [A("thickness"), A("0.12")]]],
+        ],
+        [A("attr"), A("smd")],
+        [A("duplicate_pad_numbers_are_jumpers"), A("yes")],
+        [
+            A("fp_rect"),
+            [A("start"), A(fmt(-cy)), A(fmt(-cy))],
+            [A("end"), A(fmt(cy)), A(fmt(cy))],
+            [A("stroke"), [A("width"), A("0.05")], [A("type"), A("solid")]],
+            [A("fill"), A("no")],
+            [A("layer"), A("F.CrtYd", True)],
+        ],
+    ]
+    fp.extend(pads)
+    return fp
+
+
+def add_battery(board):
+    """2S pack bay on the left of the inlet.
+
+    J23 is the pack power connector. Q3 is a P-channel with its drain on the
+    raw pack positive and its source on the protected PACK rail, so a reversed
+    pack leaves the body diode off. U1 (IP2326) charges that rail from VIN_F
+    only: with the adapter unplugged the fuse opens and the charger has no
+    input. U2 (TPS56837) bucks PACK down to 5 V. Q4 ORs that onto the bottom
+    +5V bus and Q5 holds the buck off while VIN_F is present, so the adapter
+    and the pack do not fight.
+
+    The pack has to include a BMS. The balance plug is a sense connection,
+    not a second power path around Q3. NTC is a fixed resistor. None of this
+    is over-voltage protection.
+    """
+    taken = {prop(fp, "Reference") for fp in kids(board, "footprint")}
+    need = [
+        "U1", "U2", "L1", "L2", "Q3", "Q4", "Q5", "Q6", "J23", "J24",
+        "D5", "D6", "D7",
+    ] + [f"R{n}" for n in range(7, 22)] + [f"C{n}" for n in range(40, 52)]
+    hit = [r for r in need if r in taken]
+    if hit:
+        raise RuntimeError(f"battery refs already on the board: {hit}")
+
+    parts = []
+    # XT30PW-M, rot +90. Housing extends toward the left edge.
+    # Library silk marks pad 2 "+", pad 1 "-". Confirm against the AMASS drawing
+    # before a cable is built.
+    j23 = _place(
+        "Connector_AMASS.pretty/AMASS_XT30PW-M_1x02_P2.50mm_Horizontal.kicad_mod",
+        "Connector_AMASS:AMASS_XT30PW-M_1x02_P2.50mm_Horizontal",
+        "J23",
+        "XT30PW-M",
+        26.0,
+        68.0,
+        90,
+        {"1": "GND", "2": "PACK_IN"},
+    )
+    set_prop_at(j23, "Reference", 2.2, 3.2)
+    parts.append(j23)
+    # JST XH 2S: pin 1 cell-, pin 2 mid, pin 3 cell+ (same node as XT30 +).
+    j24 = _place(
+        "Connector_JST.pretty/JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical.kicad_mod",
+        "Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical",
+        "J24",
+        "B3B-XH-A",
+        16.0,
+        82.0,
+        0,
+        {"1": "GND", "2": "VBATM", "3": "PACK_IN"},
+    )
+    set_prop_at(j24, "Reference", 2.5, -3.6)
+    parts.append(j24)
+
+    # rot 180: drain (pad 5) faces the XT30, sources face the charger.
+    q3 = _place(
+        "Package_SO.pretty/ONSemi_SO-8FL_488AA.kicad_mod",
+        "Package_SO:ONSemi_SO-8FL_488AA",
+        "Q3",
+        "NTMFS002P03P8Z",
+        40.0,
+        72.0,
+        180,
+        {"1": "PACK", "2": "PACK", "3": "PACK", "4": "GATE3", "5": "PACK_IN"},
+    )
+    set_prop_at(q3, "Reference", 0.0, -4.2)
+    parts.append(q3)
+    # rot -90 puts the banded cathode (pad 1) on the upper pad.
+    d5 = _place(
+        "Diode_SMD.pretty/D_SOD-123.kicad_mod",
+        "Diode_SMD:D_SOD-123",
+        "D5",
+        "BZT52C12",
+        42.75,
+        64.5,
+        -90,
+        {"1": "PACK", "2": "GATE3"},
+    )
+    set_prop_at(d5, "Reference", 2.6, 0.0)
+    parts.append(d5)
+    r7 = _place(
+        "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
+        "Resistor_SMD:R_0603_1608Metric",
+        "R7",
+        "100k",
+        46.8,
+        66.2,
+        0,
+        {"1": "GATE3", "2": "GND"},
+    )
+    parts.append(r7)
+
+    u1 = _place(
+        "Package_DFN_QFN.pretty/QFN-24-1EP_4x4mm_P0.5mm_EP2.5x2.5mm.kicad_mod",
+        "Package_DFN_QFN:QFN-24-1EP_4x4mm_P0.5mm_EP2.5x2.5mm",
+        "U1",
+        "IP2326",
+        54.0,
+        74.0,
+        0,
+        {
+            "4": "CHG_NTC",
+            "6": "CHG_LED",
+            "7": "CHG_TIME",
+            "11": "CHG_ISET",
+            "12": "CHG_EN",
+            "13": "VIN_F",
+            "14": "CHG_BST",
+            "15": "CHG_LX",
+            "16": "CHG_LX",
+            "17": "CHG_LX",
+            "18": "GND",
+            "19": "CHG_VSYS",
+            "20": "CHG_VSYS",
+            "21": "PACK",
+            "22": "PACK",
+            "23": "VBATM",
+            "24": "GND",
+            "25": "GND",
+        },
+    )
+    set_prop_at(u1, "Reference", 0.0, -3.5)
+    parts.append(u1)
+    # rot 0. KiCad does not rotate a pad's size with the footprint, so rot 90
+    # leaves the 5.5 mm axis in Y and the two pads overlap. At rot 0 the long
+    # axis is perpendicular to the 4.04 mm center spacing (gap about 2.6 mm).
+    # Pad 1 (LX) is on the left, pad 2 (VSYS) on the right.
+    l1 = _place(
+        "Inductor_SMD.pretty/L_Coilcraft_XAL6030-XXX.kicad_mod",
+        "Inductor_SMD:L_Coilcraft_XAL6030-XXX",
+        "L1",
+        "XAL6030-222MEC",
+        66.5,
+        72.0,
+        0,
+        {"1": "CHG_LX", "2": "CHG_VSYS"},
+    )
+    set_prop_at(l1, "Reference", 0.0, -4.6)
+    parts.append(l1)
+
+    def chip_c(ref, value, x, y, ang, nets):
+        return _place(
+            "Capacitor_SMD.pretty/C_0805_2012Metric.kicad_mod",
+            "Capacitor_SMD:C_0805_2012Metric",
+            ref,
+            value,
+            x,
+            y,
+            ang,
+            nets,
+        )
+
+    def chip_r(ref, value, x, y, ang, nets):
+        return _place(
+            "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
+            "Resistor_SMD:R_0603_1608Metric",
+            ref,
+            value,
+            x,
+            y,
+            ang,
+            nets,
+        )
+
+    parts.append(chip_c("C42", "22uF 25V", 66.5, 64.5, 0, {"1": "CHG_VSYS", "2": "GND"}))
+    parts.append(chip_c("C43", "22uF 25V", 66.5, 61.0, 0, {"1": "CHG_VSYS", "2": "GND"}))
+    # Pad 1 sits on the PACK column at the y=83 corner. Pad 2 is to the right,
+    # off the rail, so the ground pad is not swallowed by the 0.8 mm trace.
+    parts.append(chip_c("C44", "10uF 25V", 45.15, 83.0, 0, {"1": "PACK", "2": "GND"}))
+    parts.append(chip_c("C40", "10uF 25V", 54.0, 84.8, 0, {"1": "GND", "2": "VIN_F"}))
+    parts.append(chip_c("C41", "10uF 25V", 60.5, 84.8, 0, {"1": "VIN_F", "2": "GND"}))
+    parts.append(
+        _place(
+            "Capacitor_SMD.pretty/C_0603_1608Metric.kicad_mod",
+            "Capacitor_SMD:C_0603_1608Metric",
+            "C45",
+            "100nF",
+            60.8,
+            78.4,
+            0,
+            {"1": "CHG_BST", "2": "CHG_LX"},
+        )
+    )
+    parts.append(chip_r("R17", "51k", 46.0, 74.25, 0, {"1": "GND", "2": "CHG_NTC"}))
+    parts.append(chip_r("R18", "100", 46.0, 76.6, 0, {"1": "LED_A", "2": "CHG_LED"}))
+    parts.append(
+        _place(
+            "LED_SMD.pretty/LED_0603_1608Metric.kicad_mod",
+            "LED_SMD:LED_0603_1608Metric",
+            "D7",
+            "RED",
+            40.2,
+            76.6,
+            0,
+            {"1": "GND", "2": "LED_A"},
+        )
+    )
+    parts.append(chip_r("R16", "120k", 48.0, 80.8, 0, {"1": "GND", "2": "CHG_TIME"}))
+    parts.append(chip_r("R15", "90.9k", 55.2, 80.8, 0, {"1": "GND", "2": "CHG_ISET"}))
+    parts.append(chip_r("R14", "5.1k", 62.8, 80.8, 0, {"1": "CHG_EN", "2": "VIN_F"}))
+
+    u2 = make_tps56837("U2", "TPS56837", 32.0, 106.0, 0)
+    for number, net in {
+        "1": "BUCK_EN",
+        "2": "BUCK_FB",
+        "3": "GND",
+        "6": "BUCK_SW",
+        "7": "BUCK_BOOT",
+        "8": "PACK",
+        "9": "GND",
+        "10": "BUCK_MODE",
+    }.items():
+        set_pad_net(u2, number, net)
+    parts.append(u2)
+    l2 = _place(
+        "Inductor_SMD.pretty/L_Coilcraft_XAL1010-XXX.kicad_mod",
+        "Inductor_SMD:L_Coilcraft_XAL1010-XXX",
+        "L2",
+        "XAL1010-332MED",
+        50.0,
+        106.0,
+        0,
+        {"1": "BUCK_SW", "2": "BUCK5"},
+    )
+    set_prop_at(l2, "Reference", 0.0, -7.0)
+    parts.append(l2)
+    # rot 0: sources face the inductor, drain faces the bus drop.
+    q4 = _place(
+        "Package_SO.pretty/ONSemi_SO-8FL_488AA.kicad_mod",
+        "Package_SO:ONSemi_SO-8FL_488AA",
+        "Q4",
+        "NTMFS002P03P8Z",
+        66.0,
+        106.0,
+        0,
+        {"1": "BUCK5", "2": "BUCK5", "3": "BUCK5", "4": "GATE4", "5": "+5V"},
+    )
+    set_prop_at(q4, "Reference", 0.0, -4.2)
+    parts.append(q4)
+    parts.append(chip_c("C46", "10uF 25V", 30.0, 100.2, 0, {"1": "PACK", "2": "GND"}))
+    parts.append(chip_c("C47", "10uF 25V", 37.2, 100.2, 0, {"1": "GND", "2": "PACK"}))
+    parts.append(
+        _place(
+            "Capacitor_SMD.pretty/C_0603_1608Metric.kicad_mod",
+            "Capacitor_SMD:C_0603_1608Metric",
+            "C51",
+            "100nF",
+            38.6,
+            103.3,
+            0,
+            {"1": "BUCK_BOOT", "2": "BUCK_SW"},
+        )
+    )
+    # rot 90: pad 1 lower = GND, pad 2 upper = BUCK5.
+    for ref, x in (("C48", 42.0), ("C49", 47.0), ("C50", 52.0)):
+        parts.append(chip_c(ref, "22uF 25V", x, 119.0, 90, {"1": "GND", "2": "BUCK5"}))
+    parts.append(chip_r("R19", "30.1k", 22.0, 104.2, 0, {"1": "GND", "2": "BUCK_MODE"}))
+    parts.append(chip_r("R20", "73.2k", 22.0, 108.4, 0, {"1": "BUCK5", "2": "BUCK_FB"}))
+    parts.append(chip_r("R21", "10.0k", 22.0, 111.8, 0, {"1": "GND", "2": "BUCK_FB"}))
+    # R8 courtyard must clear L2 (courtyard right x=55.5). Half-width is 1.48.
+    parts.append(chip_r("R8", "100k", 57.3, 111.6, 0, {"1": "BUCK5", "2": "GATE4"}))
+    # R9 courtyard must clear D6 (courtyard right x=63.15). rot 90 half-width is 0.73.
+    parts.append(chip_r("R9", "1k", 64.2, 115.4, 90, {"1": "Q6C", "2": "GATE4"}))
+    parts.append(chip_r("R10", "47k", 54.2, 115.6, 0, {"1": "BUCK5", "2": "Q6B"}))
+    parts.append(chip_r("R11", "100k", 63.6, 119.4, 0, {"1": "GND", "2": "Q6B"}))
+    parts.append(chip_r("R12", "100k", 14.8, 113.4, 0, {"1": "Q5B", "2": "VIN_F"}))
+    parts.append(chip_r("R13", "100k", 14.8, 116.6, 0, {"1": "GND", "2": "Q5B"}))
+    parts.append(
+        _place(
+            "Diode_SMD.pretty/D_SOD-123.kicad_mod",
+            "Diode_SMD:D_SOD-123",
+            "D6",
+            "BZT52C12",
+            60.8,
+            115.0,
+            0,
+            {"1": "BUCK5", "2": "GATE4"},
+        )
+    )
+    parts.append(
+        _place(
+            "Package_TO_SOT_SMD.pretty/SOT-23.kicad_mod",
+            "Package_TO_SOT_SMD:SOT-23",
+            "Q5",
+            "MMBT3904",
+            14.8,
+            108.6,
+            0,
+            {"1": "Q5B", "2": "GND", "3": "BUCK_EN"},
+        )
+    )
+    parts.append(
+        _place(
+            "Package_TO_SOT_SMD.pretty/SOT-23.kicad_mod",
+            "Package_TO_SOT_SMD:SOT-23",
+            "Q6",
+            "MMBT3904",
+            58.2,
+            119.4,
+            0,
+            {"1": "Q6B", "2": "GND", "3": "Q6C"},
+        )
+    )
+
+    for p in parts:
+        board.append(p)
+
+    tracks = []
+    labels = [
+        gr_text("2S PACK", 34.5, 59.6, size=1.0),
+        gr_text("BMS", 20.0, 78.2, size=0.8),
+    ]
+    # Routing is filled in by _route_battery so placement can be checked first.
+    tracks += _route_battery(board)
+    return tracks, labels
+
+
+def _p(board, ref, number):
+    cx, cy, _w, _h, _net = find_pad(board, ref, number)
+    return (cx, cy)
+
+
+def _route_battery(board):
+    """Copper for the bay. Endpoints come from the pads; corners are explicit."""
+    t = []
+    # --- pack positive into Q3 drain, and the balance cell+ pin ---
+    xt = _p(board, "J23", "2")
+    drain = _p(board, "Q3", "5")
+    t += wire([xt, (drain[0], xt[1]), drain], 1.2, "PACK_IN")
+    bal = _p(board, "J24", "3")
+    t += wire([xt, (bal[0], xt[1]), bal], 0.6, "PACK_IN")
+
+    # --- Q3 gate: straight up the source side into D5, then R7 to a via ---
+    gate = _p(board, "Q3", "4")
+    z_a = _p(board, "D5", "2")
+    z_k = _p(board, "D5", "1")
+    t += wire([gate, (gate[0], z_a[1]), z_a], 0.25, "GATE3")
+    r7g = _p(board, "R7", "1")
+    r7n = _p(board, "R7", "2")
+    # Around the left of D5. Dropping on the zener's own x runs through the
+    # cathode, which is the PACK pad.
+    t += wire([r7g, (r7g[0], 61.6), (41.0, 61.6), (41.0, z_a[1]), z_a], 0.25, "GATE3")
+    t.append(via_at(r7n[0] + 1.6, r7n[1], "GND"))
+    t += wire([r7n, (r7n[0] + 1.6, r7n[1])], 0.25, "GND")
+
+    # --- protected PACK: source, down, up the gap, into VOUT and the zener ---
+    src = _p(board, "Q3", "1")
+    # The three source pads share an x and are not jumpers. A trace into pad 1
+    # does not tie pad 2 or pad 3. Stop on pad 3: the gate pad is 0.52 mm past it.
+    src3 = _p(board, "Q3", "3")
+    t += wire([src, src3], 0.8, "PACK")
+    vout = _p(board, "U1", "22")
+    # 44.0 keeps the 0.8 mm column 0.37 mm off R17 and R18. 44.2 left 0.17 mm.
+    # The corner still lands inside C44's PACK pad (that pad spans x 43.7–44.7).
+    pack_x = 44.0
+    # The 0.8 mm copper stops outside the QFN courtyard. A 0.25 mm neck
+    # finishes onto the VOUT pin so it does not bridge the 0.5 mm pitch.
+    t += wire(
+        [src, (src[0], 83.0), (pack_x, 83.0), (pack_x, 69.2), (pack_x, z_k[1])],
+        0.8,
+        "PACK",
+    )
+    # Slot at x=53.25 so the VBATM stub can leave the top of the QFN without
+    # crossing this rail. The wide copper stops outside that slot.
+    t += wire([(pack_x, 69.2), (52.3, 69.2)], 0.8, "PACK")
+    t += wire([(52.3, 69.2), (52.3, 66.2), (54.4, 66.2), (54.4, 69.2)], 0.4, "PACK")
+    # The VBATM stub leaves pin 23 at x=53.25. A 0.4 mm finish on the VOUT pin
+    # (x=53.75) is 0.175 mm from that stub. 0.25 mm leaves a 0.25 mm gap.
+    t += wire([(54.4, 69.2), (vout[0], 69.2), (vout[0], 70.6), vout], 0.25, "PACK")
+    vout2 = _p(board, "U1", "21")
+    t += wire([(vout[0], 71.85), (vout2[0], 71.85)], 0.25, "PACK")
+    t += wire([z_k, (pack_x, z_k[1])], 0.25, "PACK")
+    c44g = _p(board, "C44", "2")
+    t.append(via_at(c44g[0] + 1.8, c44g[1], "GND"))
+    t += wire([c44g, (c44g[0] + 1.8, c44g[1])], 0.4, "GND")
+
+    # --- charger switching ---
+    lx_pins = [_p(board, "U1", n) for n in ("15", "16", "17")]
+    tie_x = lx_pins[0][0] + 0.75
+    for p in lx_pins:
+        t += wire([p, (tie_x, p[1])], 0.25, "CHG_LX")
+    t += wire([(tie_x, lx_pins[0][1]), (tie_x, lx_pins[-1][1])], 0.25, "CHG_LX")
+    l1_lx = _p(board, "L1", "1")
+    t += wire([(tie_x, lx_pins[1][1]), (l1_lx[0], lx_pins[1][1]), l1_lx], 0.5, "CHG_LX")
+    bst = _p(board, "U1", "14")
+    c45a = _p(board, "C45", "1")
+    c45b = _p(board, "C45", "2")
+    # Right of the VIN pin, and it stops above the EN run.
+    t += wire([bst, (59.2, bst[1]), (59.2, c45a[1]), c45a], 0.25, "CHG_BST")
+    t += wire([c45b, (c45b[0], lx_pins[1][1])], 0.25, "CHG_LX")
+    vsys_pins = [_p(board, "U1", "19"), _p(board, "U1", "20")]
+    t += wire([(vsys_pins[0][0], 71.85), (vsys_pins[1][0], 71.85)], 0.25, "CHG_VSYS")
+    l1_vs = _p(board, "L1", "2")
+    # Above both inductor pads. y=70.35 crosses the LX pad (it spans y 69.25–74.75).
+    # The pin escape stays 0.25 mm so it does not widen past pin 19 toward PGND.
+    t += wire([vsys_pins[0], (vsys_pins[0][0], 68.6)], 0.25, "CHG_VSYS")
+    t += wire([(vsys_pins[0][0], 68.6), (l1_vs[0], 68.6)], 0.4, "CHG_VSYS")
+    # Each cap's ground pad sits between its VSYS pad and L1. Leave upward,
+    # then join the drop on the VSYS pad's own x.
+    c42 = _p(board, "C42", "1")
+    c43 = _p(board, "C43", "1")
+    # y=58.6 is above C43's ground via. A stub to the right of either cap
+    # crosses this drop, so each ground via leaves on the pad's own x.
+    t += wire([c43, (c43[0], 58.6), (l1_vs[0], 58.6)], 0.4, "CHG_VSYS")
+    t += wire([c42, (c42[0], 62.75), (l1_vs[0], 62.75)], 0.4, "CHG_VSYS")
+    t += wire([(l1_vs[0], 58.6), l1_vs], 0.4, "CHG_VSYS")
+    g = _p(board, "C43", "2")
+    t.append(via_at(g[0], g[1] - 1.6, "GND"))
+    t += wire([g, (g[0], g[1] - 1.6)], 0.4, "GND")
+    g = _p(board, "C42", "2")
+    t.append(via_at(g[0], g[1] + 1.4, "GND"))
+    t += wire([g, (g[0], g[1] + 1.4)], 0.4, "GND")
+    # Exposed pad and PGND.
+    ep = _p(board, "U1", "25")
+    t.append(via_at(ep[0], ep[1], "GND"))
+    pgnd = _p(board, "U1", "18")
+    t.append(via_at(pgnd[0] + 1.5, pgnd[1] - 0.45, "GND"))
+    t += wire([pgnd, (pgnd[0] + 1.5, pgnd[1]), (pgnd[0] + 1.5, pgnd[1] - 0.45)], 0.25, "GND")
+
+    # --- charger small signals, each leaving the QFN on its own column ---
+    ntc = _p(board, "U1", "4")
+    t += wire([ntc, _p(board, "R17", "2")], 0.25, "CHG_NTC")
+    # y+1.15 sits between R17 and R18. y+1.5 was 0.075 mm from R18's pad.
+    r17g = _p(board, "R17", "1")
+    t.append(via_at(r17g[0], r17g[1] + 1.15, "GND"))
+    t += wire([r17g, (r17g[0], r17g[1] + 1.15)], 0.25, "GND")
+    led = _p(board, "U1", "6")
+    r18 = _p(board, "R18", "2")
+    t += wire([led, (led[0], r18[1]), r18], 0.25, "CHG_LED")
+    # Back side. On the front the return has to cross the PACK column.
+    led_a = _p(board, "D7", "2")
+    r18a = _p(board, "R18", "1")
+    t.append(via_at(led_a[0], led_a[1] + 1.6, "LED_A"))
+    t += wire([led_a, (led_a[0], led_a[1] + 1.6)], 0.25, "LED_A")
+    t.append(via_at(r18a[0], r18a[1] + 1.6, "LED_A"))
+    t += wire([r18a, (r18a[0], r18a[1] + 1.6)], 0.25, "LED_A")
+    t += wire(
+        [(led_a[0], led_a[1] + 1.6), (r18a[0], r18a[1] + 1.6)],
+        0.25,
+        "LED_A",
+        "B.Cu",
+    )
+    t.append(via_at(_p(board, "D7", "1")[0] - 1.5, _p(board, "D7", "1")[1], "GND"))
+    t += wire([_p(board, "D7", "1"), (_p(board, "D7", "1")[0] - 1.5, _p(board, "D7", "1")[1])], 0.25, "GND")
+    time_p = _p(board, "U1", "7")
+    r16 = _p(board, "R16", "2")
+    t += wire([time_p, (time_p[0], 77.25), (r16[0], 77.25), r16], 0.25, "CHG_TIME")
+    iset = _p(board, "U1", "11")
+    r15 = _p(board, "R15", "2")
+    # The pin's own x runs through R15's ground pad. Step left of that pad,
+    # under the resistor, and up into the ISET pad. EN owns x=55.25 down to
+    # y=79.6, so this jog stays on the ground-pad side of EN.
+    t += wire(
+        [iset, (iset[0], 78.2), (53.5, 78.2), (53.5, 83.4), (r15[0], 83.4), r15],
+        0.25,
+        "CHG_ISET",
+    )
+    en = _p(board, "U1", "12")
+    r14 = _p(board, "R14", "1")
+    # Below C45. Stay left of R14's VIN pad; the riser on that pad is VIN_F.
+    t += wire([en, (en[0], 79.6), (60.2, 79.6), (60.2, 82.6), (r14[0], 82.6), r14], 0.25, "CHG_EN")
+    g = _p(board, "R15", "1")
+    # Below the pad. A via to the left would sit on the ISET column at x=53.5.
+    t.append(via_at(g[0], g[1] + 1.6, "GND"))
+    t += wire([g, (g[0], g[1] + 1.6)], 0.25, "GND")
+    g = _p(board, "R16", "1")
+    t.append(via_at(g[0], g[1] + 1.6, "GND"))
+    t += wire([g, (g[0], g[1] + 1.6)], 0.25, "GND")
+
+    # --- VIN_F: hop under the gate rail, then F.Cu to the charger and Q5 ---
+    f2 = _p(board, "F2", "2")
+    t += wire([f2, (78.2, f2[1])], 0.6, "VIN_F")
+    t.append(via_at(78.2, f2[1], "VIN_F"))
+    t.append(via_at(72.0, f2[1], "VIN_F"))
+    t += wire([(78.2, f2[1]), (72.0, f2[1])], 0.8, "VIN_F", "B.Cu")
+    c40 = _p(board, "C40", "2")
+    c41 = _p(board, "C41", "1")
+    vin = _p(board, "U1", "13")
+    t += wire([(72.0, f2[1]), (57.6, f2[1]), (57.6, c40[1]), c40, c41], 0.5, "VIN_F")
+    # The pin cannot drop on F.Cu: CHG_EN owns y=79.6 and BST owns x=59.2.
+    # The BST run is 0.5 mm above this pin, so the via sits below the stub
+    # (a via on the pin row is 0.075 mm from that trace). Hop at x=57.2,
+    # off lane 58, and return on the cap row.
+    t += wire([vin, (57.2, vin[1]), (57.2, vin[1] + 0.35)], 0.25, "VIN_F")
+    t.append(via_at(57.2, vin[1] + 0.35, "VIN_F"))
+    t.append(via_at(57.2, c40[1], "VIN_F"))
+    t += wire([(57.2, vin[1] + 0.35), (57.2, c40[1])], 0.25, "VIN_F", "B.Cu")
+    # R14's VIN pad is the right one. Come up from below the input caps so the
+    # trace does not run across the CHG_EN pad. y=87.4 clears the ground via
+    # that sits under C41; the old riser at the pad row shorted that via.
+    r14v = _p(board, "R14", "2")
+    t += wire([c41, (c41[0], 87.4), (r14v[0], 87.4), r14v], 0.25, "VIN_F")
+    g = _p(board, "C40", "1")
+    t.append(via_at(g[0] - 1.8, g[1], "GND"))
+    t += wire([g, (g[0] - 1.8, g[1])], 0.4, "GND")
+    g = _p(board, "C41", "2")
+    t.append(via_at(g[0], g[1] + 1.6, "GND"))
+    t += wire([g, (g[0], g[1] + 1.6)], 0.4, "GND")
+
+    # VBATM on the back so it can cross the PACK column.
+    # The stub uses the slot in the PACK rail. On the back the run sits above
+    # the XT30 ground pad (that pad reaches y=66.25) and above the J23 spoke,
+    # then drops at x=22, left of the pad and right of the VIN_F hop. A drop
+    # at x=30 would wall lane 36.
+    vbatm = _p(board, "U1", "23")
+    t.append(via_at(vbatm[0], 67.6, "VBATM"))
+    t += wire([vbatm, (vbatm[0], 67.6)], 0.25, "VBATM")
+    mid = _p(board, "J24", "2")
+    t += wire(
+        [
+            (vbatm[0], 67.6),
+            (vbatm[0], 65.2),
+            (22.0, 65.2),
+            (22.0, 80.0),
+            (mid[0], 80.0),
+            mid,
+        ],
+        0.3,
+        "VBATM",
+        "B.Cu",
+    )
+    # VBAT_GND (pin 24) is already net GND. A via above the pin sits on the
+    # VBATM back-side run, so this one leaves to the left of the QFN.
+    vg = _p(board, "U1", "24")
+    t.append(via_at(vg[0] - 3.4, vg[1], "GND"))
+    t += wire([vg, (vg[0] - 3.4, vg[1])], 0.25, "GND")
+
+    # --- buck power ---
+    sw = _p(board, "U2", "6")
+    l2sw = _p(board, "L2", "1")
+    # Neck stays inside the SW pad's height until it is clear of BOOT.
+    t += wire([sw, (sw[0] + 1.55, sw[1])], 0.25, "BUCK_SW")
+    t += wire([(sw[0] + 1.55, sw[1]), (l2sw[0], sw[1]), l2sw], 1.2, "BUCK_SW")
+    boot = _p(board, "U2", "7")
+    c51a = _p(board, "C51", "1")
+    c51b = _p(board, "C51", "2")
+    t += wire([boot, (boot[0], c51a[1]), c51a], 0.25, "BUCK_BOOT")
+    t += wire([c51b, (c51b[0], sw[1])], 0.25, "BUCK_SW")
+
+    # PACK into the buck input. Stop on C47's PACK pad (the right one) so the
+    # column does not cross that cap's ground pad. A bus just below the two
+    # input caps joins C46 and drops onto the VIN spine.
+    vin8 = _p(board, "U2", "8")
+    c46 = _p(board, "C46", "1")
+    c47 = _p(board, "C47", "2")
+    t += wire([(pack_x, 83.0), (pack_x, c47[1]), c47], 0.8, "PACK")
+    t += wire(
+        [c47, (c47[0], c47[1] + 1.8), (vin8[0], c47[1] + 1.8), (c46[0], c47[1] + 1.8), c46],
+        0.6,
+        "PACK",
+    )
+    t += wire([(vin8[0], c47[1] + 1.8), vin8], 0.8, "PACK")
+    for ref, padn in (("C46", "2"), ("C47", "1")):
+        g = _p(board, ref, padn)
+        t.append(via_at(g[0], g[1] - 1.7, "GND"))
+        t += wire([g, (g[0], g[1] - 1.7)], 0.4, "GND")
+
+    # BUCK5 from the inductor to a source pad. The output caps tie below L2
+    # and rise at x=50, in the gap between the SW pad and the output pad.
+    src4 = _p(board, "Q4", "2")
+    l2out = _p(board, "L2", "2")
+    t += wire([(50.0, l2out[1]), l2out, (src4[0], l2out[1]), src4], 1.2, "BUCK5")
+    # Same source-pad tie as Q3. The 1.2 mm run hits pad 2 only.
+    t += wire([_p(board, "Q4", "1"), _p(board, "Q4", "3")], 0.8, "BUCK5")
+    tops = []
+    for ref in ("C48", "C49", "C50"):
+        top = _p(board, ref, "2")
+        bot = _p(board, ref, "1")
+        tops.append(top)
+        t.append(via_at(bot[0], bot[1] + 1.8, "GND"))
+        t += wire([bot, (bot[0], bot[1] + 1.8)], 0.4, "GND")
+    t += wire([tops[0], (50.0, tops[0][1]), tops[-1]], 0.8, "BUCK5")
+    t += wire([(50.0, tops[0][1]), (50.0, l2out[1])], 1.0, "BUCK5")
+    # Drain down onto the bottom bus. The bus already runs through x=62.
+    drain4 = _p(board, "Q4", "5")
+    t += wire([(drain4[0], drain4[1]), (drain4[0], BUS_BOT_Y)], 1.5, "+5V")
+
+    gate4 = _p(board, "Q4", "4")
+    r8g = _p(board, "R8", "2")
+    r8s = _p(board, "R8", "1")
+    t += wire([gate4, (gate4[0], r8g[1]), r8g], 0.25, "GATE4")
+    t += wire([r8s, (l2out[0], r8s[1]), (l2out[0], l2out[1])], 0.25, "BUCK5")
+    d6a = _p(board, "D6", "2")
+    d6k = _p(board, "D6", "1")
+    t += wire([d6a, (d6a[0], r8g[1])], 0.25, "GATE4")
+    # Below R10. A run at the diode's y passes through R10's Q6B pad.
+    t += wire([d6k, (d6k[0], 114.6), (54.0, 114.6), (54.0, l2out[1])], 0.4, "BUCK5")
+    r9g = _p(board, "R9", "2")
+    r9c = _p(board, "R9", "1")
+    # Continue up the gate pin's x to the row that already ties R8 and D6.
+    t += wire([r9g, (gate4[0], r9g[1]), (gate4[0], r8g[1])], 0.25, "GATE4")
+    q6c = _p(board, "Q6", "3")
+    t += wire([q6c, (q6c[0], r9c[1]), r9c], 0.25, "Q6C")
+    q6b = _p(board, "Q6", "1")
+    r10b = _p(board, "R10", "2")
+    r10v = _p(board, "R10", "1")
+    r11b = _p(board, "R11", "2")
+    r11g = _p(board, "R11", "1")
+    # R10 stays left of the collector. R11 goes under Q6: the gate and the
+    # cathode trace both cross the row above D6.
+    join = 117.6
+    t += wire([q6b, (q6b[0], join)], 0.25, "Q6B")
+    t += wire([r10b, (r10b[0], join), (q6b[0], join)], 0.25, "Q6B")
+    t += wire(
+        [r11b, (65.4, r11b[1]), (65.4, 121.5), (r10b[0], 121.5), (r10b[0], join)],
+        0.25,
+        "Q6B",
+    )
+    # Above the pad. The diode's own y is 0.6 mm below this pad and a trace
+    # there touches it. y=114.6 stays 0.4 mm clear, then enters D6 from below.
+    t += wire([r10v, (r10v[0], 114.6), (d6k[0], 114.6), d6k], 0.25, "BUCK5")
+    t.append(via_at(r11g[0] - 1.6, r11g[1], "GND"))
+    t += wire([r11g, (r11g[0] - 1.6, r11g[1])], 0.25, "GND")
+    # To the right. A via below the emitter sits on the Q6B run under the part.
+    q6e = _p(board, "Q6", "2")
+    t.append(via_at(q6e[0] + 2.4, q6e[1], "GND"))
+    t += wire([q6e, (q6e[0] + 2.4, q6e[1])], 0.3, "GND")
+
+    # Feedback drops on R20's own column, below EN's pin. R21 is on that
+    # same column, so the drop ties it on the way to the pad.
+    fb = _p(board, "U2", "2")
+    r20f = _p(board, "R20", "2")
+    r20v = _p(board, "R20", "1")
+    r21g = _p(board, "R21", "1")
+    # Past the EN pin vertical (it ends at y=110.6), then left, then up
+    # R20's column through the gap in EN's row.
+    t += wire([fb, (fb[0], 112.2), (r20f[0], 112.2), r20f], 0.25, "BUCK_FB")
+    cap = _p(board, "C48", "2")
+    # Back side, so the sense can cross EN and Q5B. The ground bus itself
+    # starts at x=86; spokes that would cross this run take another lane.
+    t.append(via_at(r20v[0], r20v[1] + 1.5, "BUCK5"))
+    t += wire([r20v, (r20v[0], r20v[1] + 1.5)], 0.25, "BUCK5")
+    t.append(via_at(40.0, 117.2, "BUCK5"))
+    t += wire([cap, (40.0, cap[1]), (40.0, 117.2)], 0.25, "BUCK5")
+    t += wire(
+        [(r20v[0], r20v[1] + 1.5), (r20v[0], 117.2), (40.0, 117.2)],
+        0.25,
+        "BUCK5",
+        "B.Cu",
+    )
+    t.append(via_at(r21g[0] - 1.6, r21g[1], "GND"))
+    t += wire([r21g, (r21g[0] - 1.6, r21g[1])], 0.25, "GND")
+    mode = _p(board, "U2", "10")
+    r19 = _p(board, "R19", "2")
+    r19g = _p(board, "R19", "1")
+    # Down, then up the right side of R19 so the run misses R20.
+    t += wire([mode, (mode[0], 109.2), (24.6, 109.2), (24.6, 103.2), (r19[0], 103.2), r19], 0.25, "BUCK_MODE")
+    t.append(via_at(r19g[0], r19g[1] - 1.6, "GND"))
+    t += wire([r19g, (r19g[0], r19g[1] - 1.6)], 0.25, "GND")
+    ag = _p(board, "U2", "3")
+    # Right of the pin and below the row. A via on this pin's x sits 0.07 mm
+    # from the feedback trace on the next pin.
+    t.append(via_at(ag[0] + 1.05, ag[1] + 1.1, "GND"))
+    t += wire([ag, (ag[0], ag[1] + 1.1), (ag[0] + 1.05, ag[1] + 1.1)], 0.25, "GND")
+    pg = _p(board, "U2", "9")
+    # Left, along the pad. A via below the pad is 0.10 mm from the MODE pin.
+    t.append(via_at(pg[0] - 1.75, pg[1], "GND"))
+    t += wire([pg, (pg[0] - 1.75, pg[1])], 0.3, "GND")
+
+    # Buck enable: Q5 pulls EN down only while VIN_F is up.
+    # Below the feedback row, then into the collector from the right. The
+    # collector and R12's VIN pad share an x, so the drop stays off that x.
+    en2 = _p(board, "U2", "1")
+    q5c = _p(board, "Q5", "3")
+    # Gap on R20's column. The jog goes above R20: a jog below the row would
+    # cross the feedback horizontal, and a bar between the row and the pad
+    # would cross the feedback vertical. The bar sits above the pad.
+    t += wire([en2, (en2[0], 110.6), (23.7, 110.6)], 0.25, "BUCK_EN")
+    t += wire(
+        [
+            (23.7, 110.6),
+            (23.7, 107.0),
+            (22.0, 107.0),
+            (22.0, 110.6),
+            (q5c[0], 110.6),
+            q5c,
+        ],
+        0.25,
+        "BUCK_EN",
+    )
+    q5b = _p(board, "Q5", "1")
+    r12b = _p(board, "R12", "1")
+    r12v = _p(board, "R12", "2")
+    r13b = _p(board, "R13", "2")
+    r13g = _p(board, "R13", "1")
+    # Base and emitter share an x. R13's ground pad is directly below R12, so
+    # the Q5B net reaches R13's right pad from underneath.
+    t += wire([q5b, (11.2, q5b[1]), (11.2, 118.2), (r13b[0], 118.2), r13b], 0.25, "Q5B")
+    t += wire([(11.2, r12b[1]), r12b], 0.25, "Q5B")
+    # Sense VIN_F on the back. The via sits below R12: the Q5B spur owns the
+    # pad row, and the hop has to clear the mounting hole (right edge 14.15)
+    # and the XT30 peg (pad left edge 15.3). It crosses the spoke-bus line
+    # only at that x, where no spoke joins. The bridge is above the XT30
+    # ground pad, so J23 leaves to the right at y=68 and drops on lane 36.
+    hop = 14.7
+    bridge_y = 63.2
+    # Above R12. The row below the part is the Q5B spur and the EN run.
+    sense_y = r12v[1] - 1.2
+    t += wire([r12v, (r12v[0], sense_y), (hop, sense_y)], 0.25, "VIN_F")
+    t.append(via_at(hop, sense_y, "VIN_F"))
+    y = f2[1]
+    t += wire(
+        [
+            (hop, sense_y),
+            (hop, bridge_y),
+            (66.0, bridge_y),
+            (66.0, y),
+            (72.0, y),
+        ],
+        0.4,
+        "VIN_F",
+        "B.Cu",
+    )
+    t.append(via_at(r13g[0] - 1.5, r13g[1], "GND"))
+    t += wire([r13g, (r13g[0] - 1.5, r13g[1])], 0.25, "GND")
+    q5e = _p(board, "Q5", "2")
+    t.append(via_at(q5e[0] - 1.6, q5e[1], "GND"))
+    t += wire([q5e, (q5e[0] - 1.6, q5e[1])], 0.3, "GND")
+    return t
+
+
 def add_node_labels(board):
     labels = []
     for fp in kids(board, "footprint"):
         ref = prop(fp, "Reference") or ""
         if not ref.startswith("J"):
             continue
-        # SMA connectors are the coaxial ones, not USB (J19) or the input (J12)
+        # SMA connectors are the coaxial ones, not USB (J21) or the input (J22)
         name = fp[1].t
         if "SMA" not in name and "Coaxial" not in name and "BWSMA" not in name:
             # value or footprint name
             if "SMA" not in (prop(fp, "Value") or "") and "BWSMA" not in name:
                 continue
         prefix, n, suffix = node_number_from_ref(ref)
-        if prefix != "J" or suffix or n is None or n > 18:
+        if prefix != "J" or suffix or n is None or n > 20:
             continue
         x, y, ang, _ = placement(fp)
         if y < 100:
@@ -996,9 +1834,9 @@ def rebuild_outline(board):
     # drop old edge cuts
     board[:] = [c for c in board if not is_edge(c)]
     dxr = DX_SHIFT
-    # left edge unchanged, right edge +140, corner radius 3 mm, same inset as V2
-    L, R = 74.95, 265.05 + dxr
-    T, B = 54.45, 140.55
+    # Left edge moves out for the pack bay. Right edge follows the extra column.
+    L, R = BOARD_L, 265.05 + dxr
+    T, B = BOARD_T, BOARD_B
     # arcs use the 3 mm corner and the same mid inset (0.87868)
     ins = 0.87868
     items = [
@@ -1093,13 +1931,16 @@ def add_gnd_return(board):
     # Right of the input terminal. The MOSFET is F.Cu only, so the back-side
     # bus can pass under it. A 4 mm end cap stays off the terminal barrels.
     bus_x0 = 86.0
-    bus_x1 = 360.0
-    if not pour_contains(board, 250, bus_y) or not pour_contains(board, 320, bus_y):
+    bus_x1 = 400.0
+    # These two points are the 18-node pour checks (110 and 180 in V2) shifted
+    # by DX_SHIFT. The pour itself is the V2 fill, translated with the parts.
+    if not pour_contains(board, 285, bus_y) or not pour_contains(board, 355, bus_y):
         raise RuntimeError("GND bus does not land in the shifted pour")
     # Lanes sit between pin columns. Bands sit between pin rows and the SMAs.
-    lanes = (86.0, 110.0, 145.0, 180.0, 213.0)
+    # 18/36/58 serve the pack bay. 248 reaches the fifth clone column.
+    lanes = (18.0, 36.0, 58.0, 86.0, 110.0, 145.0, 180.0, 213.0, 248.0)
     bands = (68.0, 82.0, 96.0, 126.0)
-    cutoff = 225.0
+    cutoff = 272.0
 
     obstacles = []
     targets = []
@@ -1122,15 +1963,32 @@ def add_gnd_return(board):
             elif netn != "GND":
                 obstacles.append((cx, cy, rad))
 
+    # Spokes are B.Cu. A foreign back-side track is invisible to the pad scan,
+    # so sample those segments or a spoke will cross the VIN_F hop.
+    for s in kids(board, "segment"):
+        net = kid(s, "net")[1].t
+        layer = kid(s, "layer")[1].t if kid(s, "layer") else "F.Cu"
+        if layer != "B.Cu" or net == "GND":
+            continue
+        st, en = kid(s, "start"), kid(s, "end")
+        x1, y1 = num(st[1]), num(st[2])
+        x2, y2 = num(en[1]), num(en[2])
+        sw = num(kid(s, "width")[1]) / 2.0
+        length = math.hypot(x2 - x1, y2 - y1)
+        steps = max(int(length / 0.8), 1)
+        for i in range(steps + 1):
+            t = i / steps
+            obstacles.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, sw))
+
     vias = []
     for fp in kids(board, "footprint"):
-        if prop(fp, "Reference") != "C35":
+        if prop(fp, "Reference") != "C39":
             continue
         for pad in kids(fp, "pad"):
             cx, cy, _W, _H, netn, _num = pad_center_and_aabb(fp, pad)
             if netn == "GND":
                 vias.append(via_at(cx, cy, "GND"))
-                targets.append((cx, cy, "C35"))
+                targets.append((cx, cy, "C39"))
 
     for v in kids(board, "via"):
         at = kid(v, "at")
@@ -1138,10 +1996,16 @@ def add_gnd_return(board):
         net = kid(v, "net")[1].t if kid(v, "net") else "GND"
         if net == "GND" and x < cutoff:
             targets.append((x, y, "via"))
+        elif net != "GND":
+            # Segment samples use the trace half-width, which is thinner than
+            # the via. A spoke can then sit 0.18 mm from the via. 0.35 covers
+            # the 0.3 mm pad plus the router's 0.015 mm slack.
+            obstacles.append((x, y, 0.35))
 
     def off_board(x1, y1, x2, y2, width):
         m = width / 2.0
-        left, right, top, bot = 74.95, 405.05, 54.45, 140.55
+        left, right = BOARD_L, 265.05 + DX_SHIFT
+        top, bot = BOARD_T, BOARD_B
         if min(x1, x2) - m < left + 0.25:
             return True
         if max(x1, x2) + m > right - 0.25:
@@ -1205,16 +2069,16 @@ def update_title(board):
         return
     for c in tb:
         if isinstance(c, list) and head(c) == "title":
-            c[1] = A("PacketHog-18", True)
+            c[1] = A("PacketHog-20", True)
         elif isinstance(c, list) and head(c) == "date":
-            c[1] = A("2026-11-14", True)
-    tb.append([A("comment", False), A("1", False), A("18 XIAO ESP32-C5", True)])
+            c[1] = A("2026-11-17", True)
+    tb.append([A("comment", False), A("1", False), A("20 XIAO ESP32-C5", True)])
 
 
 def retitle_silkscreen(board):
     for c in board:
         if isinstance(c, list) and head(c) == "gr_text" and c[1].t == "V7":
-            c[1] = A("18", True)
+            c[1] = A("20", True)
             c[:] = [x for x in c if head(x) != "render_cache"]
 
 
@@ -1325,7 +2189,7 @@ def check(board):
                         problems.append(f"near {n1}/{n2}@{lay1} d={d:.2f} at ({px:.1f},{py:.1f})")
                         break
     # edge clearance of copper pads
-    L, R, T, B = 74.95, 265.05 + DX_SHIFT, 54.45, 140.55
+    L, R, T, B = BOARD_L, 265.05 + DX_SHIFT, BOARD_T, BOARD_B
     for r, n, x, y, w, h, net in pads:
         if x - w < L + 0.3 or x + w > R - 0.3 or y - h < T + 0.3 or y + h > B - 0.3:
             problems.append(f"edge pad {r}/{n} at ({x:.2f},{y:.2f}) half {w:.2f}x{h:.2f}")
@@ -1344,7 +2208,7 @@ def render(board, path):
     for fp in kids(board, "footprint"):
         x, y, ang, _ = placement(fp)
         fps.append((prop(fp, "Reference"), x, y))
-    xs = [74, 406]
+    xs = [4, 446]
     ys = [50, 145]
     scale = 7
     m = 20
@@ -1374,7 +2238,7 @@ def render(board, path):
                 dot(int(x1 + (x2 - x1) * t), int(y1 + (y2 - y1) * t), rgb)
 
         for x1, y1, x2, y2, net, layer in segs:
-            col = (220, 40, 40) if net == "+5V" else (40, 90, 200) if net.startswith("SMA") else (20, 140, 70) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
+            col = (220, 40, 40) if net == "+5V" else (180, 80, 0) if net in ("VIN", "VIN_F", "PACK", "PACK_IN", "BUCK5") else (40, 90, 200) if net.startswith("SMA") else (20, 140, 70) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
             line(X(x1), Y(y1), X(x2), Y(y2), col)
         ppm = path.with_suffix(".ppm")
         with ppm.open("w") as f:
@@ -1385,9 +2249,9 @@ def render(board, path):
         return
     im = Image.new("RGB", (w, h), "white")
     dr = ImageDraw.Draw(im)
-    dr.rectangle([X(74.95), Y(54.45), X(265.05 + DX_SHIFT), Y(140.55)], outline=(0, 120, 0))
+    dr.rectangle([X(BOARD_L), Y(BOARD_T), X(265.05 + DX_SHIFT), Y(BOARD_B)], outline=(0, 120, 0))
     for x1, y1, x2, y2, net, layer in segs:
-        col = (200, 30, 30) if net == "+5V" else (180, 80, 0) if net in ("VIN", "VIN_F") else (30, 80, 180) if net.startswith("SMA") else (20, 130, 60) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
+        col = (200, 30, 30) if net == "+5V" else (180, 80, 0) if net in ("VIN", "VIN_F", "PACK", "PACK_IN", "BUCK5") else (30, 80, 180) if net.startswith("SMA") else (20, 130, 60) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
         width = 3 if net == "+5V" or (net == "GND" and layer == "B.Cu") else 1
         dr.line([(X(x1), Y(y1)), (X(x2), Y(y2))], fill=col, width=width)
     for r, n, x, y, pw, ph, net in pads:
@@ -1428,11 +2292,11 @@ def copy_project():
     for name in ("fp-lib-table", "sym-lib-table"):
         shutil.copy(src_dir / name, DEST_DIR / name)
     pro = (src_dir / "PacketHog-V2.kicad_pro").read_text()
-    pro = pro.replace("PacketHog-V2", "PacketHog-18")
-    (DEST_DIR / "PacketHog-18.kicad_pro").write_text(pro)
+    pro = pro.replace("PacketHog-V2", "PacketHog-20")
+    (DEST_DIR / "PacketHog-20.kicad_pro").write_text(pro)
     sch = (src_dir / "PacketHog-V2.kicad_sch").read_text()
-    sch = sch.replace('(project "PacketHog-V2"', '(project "PacketHog-18"')
-    note = """\t(text "PacketHog-18 PCB is the routed 18-node board. This sheet is the original 10-node drawing and is not the netlist. Do not update the PCB from this schematic."
+    sch = sch.replace('(project "PacketHog-V2"', '(project "PacketHog-20"')
+    note = """\t(text "PacketHog-20 PCB is the routed 20-node board. This sheet is the original 10-node drawing and is not the netlist. Do not update the PCB from this schematic."
 \t\t(exclude_from_sim no)
 \t\t(at 20 12 0)
 \t\t(effects
@@ -1445,10 +2309,10 @@ def copy_project():
 \t)
 """ % new_uuid()
     sch = sch.replace("\t(sheet_instances", note + "\t(sheet_instances", 1)
-    (DEST_DIR / "PacketHog-18.kicad_sch").write_text(sch)
+    (DEST_DIR / "PacketHog-20.kicad_sch").write_text(sch)
     prl = src_dir / "PacketHog-V2.kicad_prl"
     if prl.exists():
-        shutil.copy(prl, DEST_DIR / "PacketHog-18.kicad_prl")
+        shutil.copy(prl, DEST_DIR / "PacketHog-20.kicad_prl")
 
 
 def fix_usb_hole_clearance(board):
@@ -1460,7 +2324,7 @@ def fix_usb_hole_clearance(board):
     and A12/B1 share the other.
     """
     for fp in kids(board, "footprint"):
-        if prop(fp, "Reference") != "J19":
+        if prop(fp, "Reference") != "J21":
             continue
         found = []
         for pad in kids(fp, "pad"):
@@ -1473,9 +2337,9 @@ def fix_usb_hole_clearance(board):
             atom_num(size, 2, 1.08)
             found.append(pad[1].t)
         if sorted(found) != ["A1", "A12", "B1", "B12"]:
-            raise RuntimeError(f"J19 GND pads not all adjusted: {found}")
+            raise RuntimeError(f"J21 GND pads not all adjusted: {found}")
         return
-    raise RuntimeError("J19 missing")
+    raise RuntimeError("J21 missing")
 
 
 def main():
@@ -1520,6 +2384,7 @@ def main():
         elif h == "group":
             continue
 
+    move_mounting_holes(board)
     retitle_silkscreen(board)
     update_title(board)
     fix_usb_hole_clearance(board)
@@ -1534,6 +2399,11 @@ def main():
         board.append(t)
     for lb in labels:
         board.append(lb)
+    b_tracks, b_labels = add_battery(board)
+    for t in b_tracks:
+        board.append(t)
+    for lb in b_labels:
+        board.append(lb)
     for lb in add_node_labels(board):
         board.append(lb)
     for item in rebuild_outline(board):
@@ -1545,7 +2415,7 @@ def main():
         board.append(t)
 
     problems = check(board)
-    real = [p for p in problems if "J19/" not in p]
+    real = [p for p in problems if "J21/" not in p]
     print(f"clearance notes: {len(problems)} ({len(real)} besides the V2 USB fanout)")
     for p in real[:80]:
         print(" ", p)
@@ -1563,7 +2433,7 @@ def main():
     print("wrote", DEST_PCB, "bytes", DEST_PCB.stat().st_size)
     write_bom(board)
     copy_project()
-    png = Path("/tmp/packethog18.png")
+    png = Path("/tmp/packethog20.png")
     render(board, png)
     print("render", png)
     # reparse to confirm the printer is valid sexpr
