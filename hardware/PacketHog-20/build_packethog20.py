@@ -6,8 +6,12 @@ five column pitches and five cloned columns fill the left side. The V2 USB-C
 circuit is unchanged and cannot run 20 radios. J21's four GND lands are
 0.07 mm shorter on the locating-peg end so they clear the 0.25 mm hole rule.
 The inlet is a 5 V screw terminal, a 10 A fuse, and a P-channel ideal-diode
-OR onto the +5 V buses. Left of that inlet is a 2S pack connector, an IP2326
-boost charger fed from the fused input, and a TPS56837 buck OR'd onto +5V.
+OR onto an unswitched +5V island. A load P-channel and a slide switch sit
+after that island, so the radios can be turned off while a pack still charges.
+The U.FL beside each SMA is left off, and so are its center-pin jumper and
+the six GND stitch vias that sat on that footprint.
+Left of the inlet is a 2S pack connector, an IP2326 boost charger fed from the
+fused input, and a TPS56837 buck OR'd onto the same island.
 """
 
 from __future__ import annotations
@@ -43,6 +47,14 @@ SPINE_X = 86.6
 SPINE_W = 2.8
 SPUR_W = 0.8
 CLEARANCE = 0.2
+# Back-side tie under the inlet. It stays below the GND bus (y=110.6, 4 mm)
+# and above the parts that close the bay.
+ISLAND_Y = 115.2
+ISLAND_W = 2.8
+LOAD = "+5V_SW"
+USB_FP_NAME = "USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal"
+SO8_FP_NAME = "ONSemi_SO-8FL_488AA"
+TPS_FP_NAME = "TPS56837_RPA0010A"
 
 KICAD_FP = Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints")
 
@@ -188,6 +200,48 @@ def set_placement(fp, x, y, ang=None):
             at.append(A(fmt(ang), False))
 
 
+def _add_at_angle(at_node, extra):
+    """KiCad's Rotate() adds the footprint angle to each child angle."""
+    if abs(extra) % 360 < 1e-6:
+        return
+    cur = num(at_node[3]) if len(at_node) > 3 else 0.0
+    new = cur + extra
+    new = (new + 180.0) % 360.0 - 180.0
+    if abs(new) < 1e-7:
+        new = 0.0
+    if len(at_node) > 3:
+        atom_num(at_node, 3, new)
+    elif abs(new) >= 1e-7:
+        at_node.append(A(fmt(new), False))
+
+
+def sync_item_angles(fp):
+    """Store pad and text angles in the board frame.
+
+    A library footprint is drawn at angle 0. FootprintNeedsUpdate flags a
+    placed copy whose pads and fields are still at 0. Graphic lines stay in
+    the local frame; KiCad rotates those from the footprint angle alone.
+    """
+    _ox, _oy, fang, _at = placement(fp)
+    if abs(fang) < 1e-6:
+        return
+
+    def walk(node):
+        if not isinstance(node, list):
+            return
+        h = head(node)
+        if h in ("pad", "property", "fp_text"):
+            at = kid(node, "at")
+            if at is not None:
+                _add_at_angle(at, fang)
+            return
+        for c in node:
+            walk(c)
+
+    for c in fp:
+        walk(c)
+
+
 def rotate(px, py, deg):
     a = math.radians(deg)
     c, s = math.cos(a), math.sin(a)
@@ -249,14 +303,41 @@ def emit(node, indent=0):
     return body + ")"
 
 
+def shift_fp_zones(fp, dx, dy=0.0):
+    """Move a footprint keepout that KiCad stored in board coordinates.
+
+    Pads stay local. The U.FL rule area is absolute, so it has to travel
+    with the footprint or the library check fails and the keepout is left
+    behind. A zone still in the footprint frame (a few millimetres) is left.
+    """
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return
+    for z in kids(fp, "zone"):
+        poly = kid(z, "polygon")
+        if poly is None:
+            continue
+        pts = kid(poly, "pts")
+        if pts is None:
+            continue
+        xs = [num(c[1]) for c in pts if isinstance(c, list) and head(c) == "xy"]
+        if not xs or max(abs(x) for x in xs) < 20.0:
+            continue
+        for c in pts:
+            if isinstance(c, list) and head(c) == "xy":
+                atom_num(c, 1, num(c[1]) + dx)
+                if abs(dy) >= 1e-9:
+                    atom_num(c, 2, num(c[2]) + dy)
+
+
 def shift_x_fields(node, dx, depth_footprint=False):
-    """Shift absolute coordinates. Footprint internals stay local."""
+    """Shift absolute coordinates. Footprint pads stay local."""
     if not isinstance(node, list):
         return
     h = head(node)
     if h == "footprint":
         at = kid(node, "at")
         atom_num(at, 1, num(at[1]) + dx)
+        shift_fp_zones(node, dx, 0.0)
         return
     if h in ("at", "start", "end", "mid", "center", "xy"):
         atom_num(node, 1, num(node[1]) + dx)
@@ -354,13 +435,11 @@ def assign_net(node, idx, fn):
 
 TEMPLATE_REFS = {
     "J2": "top",
-    "K2": "top",
     "H2A": "top",
     "H2B": "top",
     "C10": "top10",
     "C3": "top1",
     "J7": "bot",
-    "K7": "bot",
     "H7A": "bot",
     "H7B": "bot",
     "C7": "bot10",
@@ -422,6 +501,7 @@ def clone_columns(board, templates, template_segs, template_vias):
             apply_clone_names(fp, top_n, bot_n, cap_ids)
             x, y, ang, _ = placement(fp)
             set_placement(fp, x + dx, y, ang)
+            shift_fp_zones(fp, dx, 0.0)
             clones.append(fp)
         for src in template_segs:
             seg = copy.deepcopy(src)
@@ -456,12 +536,12 @@ def pad_center_and_aabb(fp, pad):
     size = kid(pad, "size")
     sx, sy = num(size[1]), num(size[2])
     shape = pad[3].t if len(pad) > 3 and isinstance(pad[3], A) else ""
+    # Pad size follows the pad's own angle. Footprint rotation already moved
+    # the center. Swapping by the footprint angle as well double-counts once
+    # the pad angle has been synced to KiCad's Rotate().
     a = math.radians(pang)
-    hw = abs(sx / 2 * math.cos(a)) + abs(sy / 2 * math.sin(a))
-    hh = abs(sx / 2 * math.sin(a)) + abs(sy / 2 * math.cos(a))
-    b = math.radians(fang)
-    W = abs(hw * math.cos(b)) + abs(hh * math.sin(b))
-    H = abs(hw * math.sin(b)) + abs(hh * math.cos(b))
+    W = abs(sx / 2 * math.cos(a)) + abs(sy / 2 * math.sin(a))
+    H = abs(sx / 2 * math.sin(a)) + abs(sy / 2 * math.cos(a))
     if shape in ("circle", "oval"):
         r = max(sx, sy) / 2
         W = H = r
@@ -627,6 +707,8 @@ def prep_lib_fp(fp, libname, ref, value, x, y, ang):
     retarget_uuids(fp)
     set_prop(fp, "Reference", ref)
     set_prop(fp, "Value", value)
+    # After the reference move. set_prop_at keeps the angle this writes.
+    sync_item_angles(fp)
     return fp
 
 
@@ -662,6 +744,229 @@ def _place(lib_rel, libname, ref, value, x, y, ang, nets):
     return fp
 
 
+def _place_tree(tree, libname, ref, value, x, y, ang, nets):
+    fp = prep_lib_fp(tree, libname, ref, value, x, y, ang)
+    for number, net in nets.items():
+        set_pad_net(fp, number, net)
+    return fp
+
+
+def _trim_so8fl_silk(fp):
+    """Drop the two drain-side silk lines. They cross the exposed pad."""
+    drop = []
+    for c in fp:
+        if head(c) != "fp_line":
+            continue
+        lay = kid(c, "layer")
+        if lay is None or lay[1].t != "F.SilkS":
+            continue
+        st, en = kid(c, "start"), kid(c, "end")
+        y1, y2 = num(st[2]), num(en[2])
+        x1, x2 = num(st[1]), num(en[1])
+        if abs(y1 - y2) < 1e-6 and abs(abs(y1) - 2.56) < 0.02 and min(x1, x2) < 1.0 and max(x1, x2) > 2.0:
+            drop.append(c)
+    if len(drop) != 2:
+        raise RuntimeError(f"SO-8FL silk trim removed {len(drop)} lines")
+    for c in drop:
+        fp.remove(c)
+    return fp
+
+
+_SO8 = None
+
+
+def so8fl_fp():
+    global _SO8
+    if _SO8 is None:
+        _SO8 = _trim_so8fl_silk(load_local(f"Package_SO.pretty/{SO8_FP_NAME}.kicad_mod"))
+    return _SO8
+
+
+def place_so8(ref, value, x, y, ang, nets):
+    return _place_tree(so8fl_fp(), f"PacketHog20:{SO8_FP_NAME}", ref, value, x, y, ang, nets)
+
+
+def _seg_ends(s):
+    st, en = kid(s, "start"), kid(s, "end")
+    return (num(st[1]), num(st[2])), (num(en[1]), num(en[2]))
+
+
+def _near_pt(a, b, tol=0.15):
+    return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1]) <= tol
+
+
+def _rename_net(node, name):
+    net = kid(node, "net")
+    if net is not None:
+        net[1] = A(name, True)
+
+
+def split_existing_rail(board):
+    """Keep USB, the ideal-diode source, and the gate clamp on +5V.
+
+    Every other copied +5V pad and track becomes the switched load. The
+    short copper that used to join USB to the fan, and the fan segment that
+    touches that join, is removed so the two nets do not meet.
+    """
+    keep_pads = {
+        ("D1", "1"),
+        ("C1", "1"),
+        ("C4", "1"),
+        ("Q1", "1"),
+        ("Q1", "2"),
+        ("Q1", "3"),
+        ("D4", "1"),
+        ("R3", "2"),
+    }
+    renamed_pads = 0
+    for fp in kids(board, "footprint"):
+        ref = prop(fp, "Reference")
+        for pad in kids(fp, "pad"):
+            net = kid(pad, "net")
+            if net is None or net[1].t != "+5V":
+                continue
+            if (ref, pad[1].t) in keep_pads:
+                continue
+            net[1] = A(LOAD, True)
+            renamed_pads += 1
+
+    seeds = [_p(board, ref, num_) for ref, num_ in (("D1", "1"), ("C1", "1"), ("C4", "1"))]
+    segs = [
+        s
+        for s in kids(board, "segment")
+        if kid(s, "net") is not None and kid(s, "net")[1].t == "+5V"
+    ]
+    keep = set()
+    changed = True
+    while changed:
+        changed = False
+        for s in segs:
+            if id(s) in keep:
+                continue
+            a, b = _seg_ends(s)
+            a_usb = any(_near_pt(a, p) for p in seeds)
+            b_usb = any(_near_pt(b, p) for p in seeds)
+            if a_usb and b[1] >= 96.0 and b[0] >= 420.0:
+                keep.add(id(s))
+                seeds.append(b)
+                changed = True
+            elif b_usb and a[1] >= 96.0 and a[0] >= 420.0:
+                keep.add(id(s))
+                seeds.append(a)
+                changed = True
+    renamed_segs = 0
+    for s in segs:
+        if id(s) not in keep:
+            _rename_net(s, LOAD)
+            renamed_segs += 1
+    for v in kids(board, "via"):
+        net = kid(v, "net")
+        if net is None or net[1].t != "+5V":
+            continue
+        at = kid(v, "at")
+        pt = (num(at[1]), num(at[2]))
+        if any(_near_pt(pt, p) for p in seeds):
+            continue
+        net[1] = A(LOAD, True)
+
+    plus_pts = []
+    for s in kids(board, "segment"):
+        if kid(s, "net")[1].t != "+5V":
+            continue
+        a, b = _seg_ends(s)
+        plus_pts.append(a)
+        plus_pts.append(b)
+    drop = []
+    for s in kids(board, "segment"):
+        if kid(s, "net")[1].t != LOAD:
+            continue
+        a, b = _seg_ends(s)
+        if any(_near_pt(a, p) or _near_pt(b, p) for p in plus_pts):
+            drop.append(s)
+    drop_ids = {id(s) for s in drop}
+    board[:] = [c for c in board if id(c) not in drop_ids]
+
+    # The copied USB rail still has a tail that used to meet the old bus.
+    # That tail is +5V, it connects nothing, and it sits on the load copper.
+    anchors = []
+    for ref, _num, cx, cy, _w, _h, netn in iter_pads(board):
+        del ref
+        if netn == "+5V":
+            anchors.append((cx, cy))
+    for v in kids(board, "via"):
+        net = kid(v, "net")
+        if net is not None and net[1].t == "+5V":
+            at = kid(v, "at")
+            anchors.append((num(at[1]), num(at[2])))
+
+    def _on_other(pt, segs, skip):
+        for s in segs:
+            if s is skip:
+                continue
+            a, b = _seg_ends(s)
+            if _near_pt(pt, a) or _near_pt(pt, b):
+                return True
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            long2 = dx * dx + dy * dy
+            if long2 < 1e-12:
+                continue
+            t = ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / long2
+            if t < 0.0 or t > 1.0:
+                continue
+            qx, qy = a[0] + t * dx, a[1] + t * dy
+            if (pt[0] - qx) ** 2 + (pt[1] - qy) ** 2 <= 0.15 ** 2:
+                return True
+        return False
+
+    pruned = 0
+    while True:
+        segs = [
+            s
+            for s in kids(board, "segment")
+            if kid(s, "net") is not None and kid(s, "net")[1].t == "+5V"
+        ]
+        loose = []
+        for s in segs:
+            a, b = _seg_ends(s)
+            a_held = any(_near_pt(a, p) for p in anchors) or _on_other(a, segs, s)
+            b_held = any(_near_pt(b, p) for p in anchors) or _on_other(b, segs, s)
+            if not a_held or not b_held:
+                loose.append(s)
+        if not loose:
+            break
+        gone = {id(s) for s in loose}
+        board[:] = [c for c in board if id(c) not in gone]
+        pruned += len(loose)
+    if pruned:
+        print(f"pruned {pruned} dangling +5V segments")
+    plus = [
+        s
+        for s in kids(board, "segment")
+        if kid(s, "net") is not None and kid(s, "net")[1].t == "+5V"
+    ]
+    for ref in ("D1", "C1", "C4"):
+        pad = _p(board, ref, "1")
+        if not any(_near_pt(pad, end) for s in plus for end in _seg_ends(s)):
+            raise RuntimeError(f"{ref} lost its +5V copper")
+
+    degree = {}
+    for s in kids(board, "segment"):
+        if kid(s, "net")[1].t != LOAD:
+            continue
+        for pt in _seg_ends(s):
+            key = (round(pt[0], 2), round(pt[1], 2))
+            degree[key] = degree.get(key, 0) + 1
+    ends = [p for p, n in degree.items() if n == 1 and p[0] >= 415.0 and p[1] <= 96.0]
+    anchor = None
+    if ends:
+        anchor = min(ends, key=lambda p: (p[0] - 420.25) ** 2 + (p[1] - 94.25) ** 2)
+    print(
+        f"rail split: pads {renamed_pads}, tracks {renamed_segs}, "
+        f"usb segments {len(keep)}, bridges {len(drop)}, fan {anchor}"
+    )
+    return anchor
+
+
 def bus_end(board, y, width, x0):
     """Rightmost segment-end x for a horizontal bus that stops before foreign copper.
 
@@ -677,7 +982,7 @@ def bus_end(board, y, width, x0):
         return not (max_y < c0 or min_y > c1)
 
     for ref, num_, x, py, w, h, net in iter_pads(board):
-        if net == "+5V":
+        if net == LOAD:
             continue
         if not hit(py - h, py + h):
             continue
@@ -688,7 +993,7 @@ def bus_end(board, y, width, x0):
         at = kid(v, "at")
         vx, vy = num(at[1]), num(at[2])
         net = kid(v, "net")[1].t if kid(v, "net") else "GND"
-        if net == "+5V":
+        if net == LOAD:
             continue
         r = num(kid(v, "size")[1]) / 2.0
         if not hit(vy - r, vy + r):
@@ -698,7 +1003,7 @@ def bus_end(board, y, width, x0):
     for s in kids(board, "segment"):
         net = kid(s, "net")[1].t
         layer = kid(s, "layer")[1].t if kid(s, "layer") else "F.Cu"
-        if layer != "F.Cu" or net == "+5V":
+        if layer != "F.Cu" or net == LOAD:
             continue
         st, en = kid(s, "start"), kid(s, "end")
         x1, y1 = num(st[1]), num(st[2])
@@ -755,9 +1060,7 @@ def add_power(board, fan_fp, c1_fp):
     # pin pads 1.00 x 0.75 at 1.27 mm and the 4.56 mm drain match that drawing).
     # rot 180 puts sources and the gate on the right, drain on the left.
     # Pads 1-3 source, pad 4 gate, pad 5 drain + exposed pad.
-    q1 = _place(
-        "Package_SO.pretty/ONSemi_SO-8FL_488AA.kicad_mod",
-        "Package_SO:ONSemi_SO-8FL_488AA",
+    q1 = place_so8(
         "Q1",
         "NTMFS002P03P8Z",
         81.6,
@@ -793,7 +1096,8 @@ def add_power(board, fan_fp, c1_fp):
         90,
         {"1": "GATE", "2": "+5V"},
     )
-    set_prop_at(r3, "Reference", 1.6, 0.0)
+    # Above the upper pad. The default sits on that pad once the body is vertical.
+    set_prop_at(r3, "Reference", 2.6, -1.3)
     parts.append(r3)
     # 1k between the NPN collector and the gate. rot 90 stacks the pads so the
     # gate net hits the upper pad and the collector hits the lower pad.
@@ -845,6 +1149,8 @@ def add_power(board, fan_fp, c1_fp):
         0,
         {"1": "GND", "2": "Q2B"},
     )
+    # The default reference sits on R5, which is directly above this body.
+    set_prop_at(r6, "Reference", 2.6, 0.0)
     parts.append(r6)
     c35 = copy.deepcopy(c1_fp)
     retarget_uuids(c35)
@@ -854,6 +1160,8 @@ def add_power(board, fan_fp, c1_fp):
     parts.append(c35)
     for p in parts:
         board.append(p)
+
+    fan_anchor = split_existing_rail(board)
 
     tracks = []
     vin = find_pad(board, "J22", "2")
@@ -872,11 +1180,18 @@ def add_power(board, fan_fp, c1_fp):
         seg(82.95, r5v[1], r5v[0], r5v[1], 0.4, "VIN_F"),
     ]
 
-    # Sources are the three right-hand pads. Stub each into the spine.
-    for n in ("1", "2", "3"):
-        p = find_pad(board, "Q1", n)
-        # 0.9 mm keeps the stub off the gate pad 1.27 mm away.
-        tracks += [seg(p[0], p[1], SPINE_X, p[1], 0.9, "+5V")]
+    # Source pads share an x and are not jumpers. Stop on pad 3: the gate is
+    # 0.52 mm past it. The load spine is a different net, so this copper stays
+    # left of it and drops through vias onto the back-side island.
+    src_lo = find_pad(board, "Q1", "1")
+    src_hi = find_pad(board, "Q1", "3")
+    if abs(src_lo[0] - src_hi[0]) > 0.05:
+        raise RuntimeError("Q1 source pads are not in a column")
+    sx = src_lo[0]
+    tracks += [seg(sx, src_hi[1], sx, src_lo[1], 0.8, "+5V")]
+    tracks += [seg(sx, src_lo[1], sx, ISLAND_Y + 1.4, 1.0, "+5V")]
+    for vy in (ISLAND_Y - 1.0, ISLAND_Y, ISLAND_Y + 1.0):
+        board.append(via_at(sx, vy, "+5V"))
     gate = find_pad(board, "Q1", "4")
     # Drain copper reaches x=83.20, and there is no legal track between that
     # edge and the source pads. The gate leaves upward, climbs the open column
@@ -899,15 +1214,28 @@ def add_power(board, fan_fp, c1_fp):
         seg(rail_x, r4g[1], r4g[0], r4g[1], 0.25, "GATE"),
         seg(rail_x, r3g[1], r3g[0], r3g[1], 0.25, "GATE"),
         seg(anode[0], anode[1], side_x, anode[1], 0.25, "GATE"),
-        # Pull-up goes up the left edge, through the open strip above the fuse
-        # pad (the pad is 3.15 mm along Y), and down into the spine. 0.25 mm
-        # is all that fits between that pad and the gate run at y=90.6.
-        seg(r3v[0], r3v[1], r3v[0], 90.10, 0.25, "+5V"),
-        seg(r3v[0], 90.10, SPINE_X, 90.10, 0.25, "+5V"),
-        seg(SPINE_X, 90.10, SPINE_X, BUS_TOP_Y, 0.25, "+5V"),
     ]
+    # Onto the island, under the gate pad. A front horizontal crosses the
+    # gate rail, the VIN_F riser, and Q2's collector.
+    r3_via = (r3v[0], r3v[1] + 0.65)
+    tracks += [seg(r3v[0], r3v[1], r3_via[0], r3_via[1], 0.25, "+5V")]
+    board.append(via_at(r3_via[0], r3_via[1], "+5V"))
+    tracks += [seg(r3_via[0], r3_via[1], r3_via[0], ISLAND_Y, 0.4, "+5V", "B.Cu")]
+    # Cathode cannot drop the source column: that column meets the gate anode.
+    # Front copper at the cathode y crosses the gate rail. The via sits in
+    # the gap between the two SOD pads, and the back-side run stays below
+    # the y=96 ground trunk so the bay can still reach lane 86.
     cath = find_pad(board, "D4", "1")
-    tracks += [seg(cath[0], cath[1], SPINE_X, cath[1], 0.5, "+5V")]
+    anode = find_pad(board, "D4", "2")
+    d4_via = (cath[0], (cath[1] + anode[1]) / 2.0)
+    tracks += [seg(cath[0], cath[1], d4_via[0], d4_via[1], 0.4, "+5V")]
+    board.append(via_at(d4_via[0], d4_via[1], "+5V"))
+    tracks += wire(
+        [d4_via, (d4_via[0], 101.0), (70.0, 101.0), (70.0, ISLAND_Y)],
+        0.3,
+        "+5V",
+        "B.Cu",
+    )
 
     # Collector rises on its own x into the lower pad of R4. The base drops
     # to the right of the emitter and reaches R5 from above, so it misses
@@ -946,28 +1274,68 @@ def add_power(board, fan_fp, c1_fp):
     # near x=246.5) and stop before the USB cluster the scanner just found.
     top_end = min(top_end, 428.0)
     bot_end = min(bot_end, 421.0)
-    print(f"+5V bus ends top x={top_end:.2f} bottom x={bot_end:.2f}")
     if top_end < 360 or bot_end < 360:
-        raise RuntimeError("wide +5V bus was stopped short of the array")
-    tracks += [seg(SPINE_X, BUS_TOP_Y, SPINE_X, BUS_BOT_Y, SPINE_W, "+5V")]
-    tracks += [seg(SPINE_X, BUS_TOP_Y, top_end, BUS_TOP_Y, TOP_BUS_W, "+5V")]
+        raise RuntimeError("wide load bus was stopped short of the array")
+    tracks += [seg(SPINE_X, BUS_TOP_Y, SPINE_X, BUS_BOT_Y, SPINE_W, LOAD)]
+    # A 4 mm end cap reaches back to D4's cathode. Start the wide segment
+    # inside the spine and join it with a short neck on the spine vertex.
+    # End on copper that is already there so the far tip is not dangling.
+    top_x0 = SPINE_X + 0.6
+    landed_top = []
+    for s in kids(board, "segment"):
+        net = kid(s, "net")
+        if net is None or net[1].t != LOAD:
+            continue
+        lay = kid(s, "layer")
+        if lay is not None and lay[1].t != "F.Cu":
+            continue
+        for px, py in _seg_ends(s):
+            if abs(py - BUS_TOP_Y) <= 0.02 and px >= top_x0:
+                landed_top.append(px)
+    if landed_top:
+        top_end = min(top_end, max(landed_top))
+    tracks += [seg(SPINE_X, BUS_TOP_Y, top_x0, BUS_TOP_Y, 0.8, LOAD)]
+    tracks += [seg(top_x0, BUS_TOP_Y, top_end, BUS_TOP_Y, TOP_BUS_W, LOAD)]
+    if fan_anchor is None:
+        raise RuntimeError("USB and the fan did not separate")
+    ax, ay = fan_anchor
+    # The deleted bridge left the fan on the load net with a free end.
+    # y=95.2 is below the header row and above the capacitor under the jack.
+    tracks += wire([(ax, ay), (ax, 95.2), (412.0, 95.2), (412.0, BUS_TOP_Y)], 0.5, LOAD)
     c_pos = find_pad(board, "C39", "1")
     c_neg = find_pad(board, "C39", "2")
-    if c_pos[4] != "+5V":
+    if c_pos[4] != LOAD:
         c_pos, c_neg = c_neg, c_pos
-    # The bottom bus starts in the bay so the buck OR can land on it, then
-    # runs through the bulk cap and out to the array.
-    bot_x0 = 62.0
-    tracks += [seg(bot_x0, BUS_BOT_Y, bot_end, BUS_BOT_Y, BOT_BUS_W, "+5V")]
-    tracks += [seg(c_pos[0], c_pos[1], c_pos[0], BUS_BOT_Y, 0.8, "+5V")]
+    if c_pos[4] != LOAD:
+        raise RuntimeError("C39 is not on the switched rail")
+    # Start at the bulk cap. The old free end at x=62 was only there so the
+    # buck OR could land; that OR now joins the island, not this bus.
+    bot_x0 = c_pos[0]
+    # End on the last shifted track. Past that the wide copper has a free tip.
+    landed = []
+    for s in kids(board, "segment"):
+        net = kid(s, "net")
+        if net is None or net[1].t != LOAD:
+            continue
+        lay = kid(s, "layer")
+        if lay is not None and lay[1].t != "F.Cu":
+            continue
+        for px, py in _seg_ends(s):
+            if abs(py - BUS_BOT_Y) <= 0.02 and px >= bot_x0 - 0.02:
+                landed.append(px)
+    if landed:
+        bot_end = min(bot_end, max(landed))
+    print(f"{LOAD} bus ends top x={top_end:.2f} bottom x={bot_end:.2f}")
+    tracks += [seg(bot_x0, BUS_BOT_Y, bot_end, BUS_BOT_Y, BOT_BUS_W, LOAD)]
+    tracks += [seg(c_pos[0], c_pos[1], c_pos[0], BUS_BOT_Y, 0.8, LOAD)]
 
     for i, sma_x in enumerate(NEW_SMA_X):
         top_n = i + 1
         bot_n = i + 11
         ptop = find_pad(board, f"H{top_n}B", "7")
         pbot = find_pad(board, f"H{bot_n}B", "7")
-        tracks += [seg(ptop[0], ptop[1], ptop[0], BUS_TOP_Y, SPUR_W, "+5V")]
-        tracks += [seg(pbot[0], pbot[1], pbot[0], BUS_BOT_Y, SPUR_W, "+5V")]
+        tracks += [seg(ptop[0], ptop[1], ptop[0], BUS_TOP_Y, SPUR_W, LOAD)]
+        tracks += [seg(pbot[0], pbot[1], pbot[0], BUS_BOT_Y, SPUR_W, LOAD)]
         for cref, by in (
             (f"C{19 + i}", BUS_TOP_Y),
             (f"C{24 + i}", BUS_TOP_Y),
@@ -975,15 +1343,15 @@ def add_power(board, fan_fp, c1_fp):
             (f"C{34 + i}", BUS_BOT_Y),
         ):
             cpad = find_pad(board, cref, "1")
-            tracks += [seg(cpad[0], cpad[1], cpad[0], by, SPUR_W, "+5V")]
+            tracks += [seg(cpad[0], cpad[1], cpad[0], by, SPUR_W, LOAD)]
         tie_x = sma_x + (149.5 - TEMPLATE_SMA_X)
-        tracks += [seg(tie_x, BUS_TOP_Y, tie_x, BUS_BOT_Y, 1.0, "+5V")]
+        tracks += [seg(tie_x, BUS_TOP_Y, tie_x, BUS_BOT_Y, 1.0, LOAD)]
 
     labels = [
         gr_text("5V ONLY", 80.5, 66.8, size=1.0),
         gr_text("10A", 84.6, 87.2, size=1.0),
-        gr_text("GND", 86.4, 74.6, size=0.8),
-        gr_text("VIN", 86.4, 80.6, size=0.8),
+        gr_text("GND", 91.5, 72.2, size=0.8),
+        gr_text("VIN", 91.5, 80.6, size=0.8),
     ]
     return tracks, labels
 
@@ -994,8 +1362,16 @@ def move_mounting_holes(board):
         ref = prop(fp, "Reference")
         if ref == "MH1":
             set_placement(fp, BOARD_L + 4.55, BOARD_T + 4.55)
+            # -5 puts the text above the top edge. -3.2 stays on the board
+            # and clear of the 3.2 mm hole.
+            set_prop_at(fp, "Reference", 0, -3.2)
         elif ref == "MH2":
             set_placement(fp, BOARD_L + 4.55, BOARD_B - 4.55)
+            set_prop_at(fp, "Reference", 0, -5.0)
+        elif ref == "MH3":
+            set_prop_at(fp, "Reference", 0.0, -3.6)
+        elif ref == "MH4":
+            set_prop_at(fp, "Reference", 0.0, 3.6)
 
 
 def _rratio(sx, sy):
@@ -1048,7 +1424,7 @@ def make_tps56837(ref, value, x, y, ang=0):
     cy = 2.15
     fp = [
         A("footprint"),
-        A("Package_DFN_QFN:TPS56837_RPA0010A", True),
+        A(f"PacketHog20:{TPS_FP_NAME}", True),
         [A("version"), A("20260206")],
         [A("generator"), A("packethog20", True)],
         [A("layer"), A("F.Cu", True)],
@@ -1140,9 +1516,7 @@ def add_battery(board):
     parts.append(j24)
 
     # rot 180: drain (pad 5) faces the XT30, sources face the charger.
-    q3 = _place(
-        "Package_SO.pretty/ONSemi_SO-8FL_488AA.kicad_mod",
-        "Package_SO:ONSemi_SO-8FL_488AA",
+    q3 = place_so8(
         "Q3",
         "NTMFS002P03P8Z",
         40.0,
@@ -1150,7 +1524,8 @@ def add_battery(board):
         180,
         {"1": "PACK", "2": "PACK", "3": "PACK", "4": "GATE3", "5": "PACK_IN"},
     )
-    set_prop_at(q3, "Reference", 0.0, -4.2)
+    # To the right of the source pads. Below the body the text lands on D7.
+    set_prop_at(q3, "Reference", -4.8, 2.0)
     parts.append(q3)
     # rot -90 puts the banded cathode (pad 1) on the upper pad.
     d5 = _place(
@@ -1163,7 +1538,8 @@ def add_battery(board):
         -90,
         {"1": "PACK", "2": "GATE3"},
     )
-    set_prop_at(d5, "Reference", 2.6, 0.0)
+    # Below the body this text covers the lower pad. Sit it above the cathode.
+    set_prop_at(d5, "Reference", -4.4, 0.0)
     parts.append(d5)
     r7 = _place(
         "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
@@ -1269,22 +1645,31 @@ def add_battery(board):
         )
     )
     parts.append(chip_r("R17", "51k", 46.0, 74.25, 0, {"1": "GND", "2": "CHG_NTC"}))
-    parts.append(chip_r("R18", "100", 46.0, 76.6, 0, {"1": "LED_A", "2": "CHG_LED"}))
-    parts.append(
-        _place(
-            "LED_SMD.pretty/LED_0603_1608Metric.kicad_mod",
-            "LED_SMD:LED_0603_1608Metric",
-            "D7",
-            "RED",
-            40.2,
-            76.6,
-            0,
-            {"1": "GND", "2": "LED_A"},
-        )
+    r18 = chip_r("R18", "100", 46.0, 76.6, 0, {"1": "LED_A", "2": "CHG_LED"})
+    # Default reference sits on R17, directly above.
+    set_prop_at(r18, "Reference", 0.0, 2.4)
+    parts.append(r18)
+    d7 = _place(
+        "LED_SMD.pretty/LED_0603_1608Metric.kicad_mod",
+        "LED_SMD:LED_0603_1608Metric",
+        "D7",
+        "RED",
+        40.2,
+        76.6,
+        0,
+        {"1": "GND", "2": "LED_A"},
     )
-    parts.append(chip_r("R16", "120k", 48.0, 80.8, 0, {"1": "GND", "2": "CHG_TIME"}))
+    set_prop_at(d7, "Reference", 0.0, 1.7)
+    parts.append(d7)
+    r16 = chip_r("R16", "120k", 48.0, 80.8, 0, {"1": "GND", "2": "CHG_TIME"})
+    # Default reference overlaps R18 once R18's text moves below its body.
+    set_prop_at(r16, "Reference", 3.6, 0.0)
+    parts.append(r16)
     parts.append(chip_r("R15", "90.9k", 55.2, 80.8, 0, {"1": "GND", "2": "CHG_ISET"}))
-    parts.append(chip_r("R14", "5.1k", 62.8, 80.8, 0, {"1": "CHG_EN", "2": "VIN_F"}))
+    r14 = chip_r("R14", "5.1k", 62.8, 80.8, 0, {"1": "CHG_EN", "2": "VIN_F"})
+    # Default reference covers C45's right pad.
+    set_prop_at(r14, "Reference", 3.6, 0.0)
+    parts.append(r14)
 
     u2 = make_tps56837("U2", "TPS56837", 32.0, 106.0, 0)
     for number, net in {
@@ -1312,9 +1697,7 @@ def add_battery(board):
     set_prop_at(l2, "Reference", 0.0, -7.0)
     parts.append(l2)
     # rot 0: sources face the inductor, drain faces the bus drop.
-    q4 = _place(
-        "Package_SO.pretty/ONSemi_SO-8FL_488AA.kicad_mod",
-        "Package_SO:ONSemi_SO-8FL_488AA",
+    q4 = place_so8(
         "Q4",
         "NTMFS002P03P8Z",
         66.0,
@@ -1347,7 +1730,10 @@ def add_battery(board):
     # R8 courtyard must clear L2 (courtyard right x=55.5). Half-width is 1.48.
     parts.append(chip_r("R8", "100k", 57.3, 111.6, 0, {"1": "BUCK5", "2": "GATE4"}))
     # R9 courtyard must clear D6 (courtyard right x=63.15). rot 90 half-width is 0.73.
-    parts.append(chip_r("R9", "1k", 64.2, 115.4, 90, {"1": "Q6C", "2": "GATE4"}))
+    r9 = chip_r("R9", "1k", 64.2, 115.4, 90, {"1": "Q6C", "2": "GATE4"})
+    # rot 90 sends the default reference left, onto D6.
+    set_prop_at(r9, "Reference", 0.0, 2.2)
+    parts.append(r9)
     parts.append(chip_r("R10", "47k", 54.2, 115.6, 0, {"1": "BUCK5", "2": "Q6B"}))
     parts.append(chip_r("R11", "100k", 63.6, 119.4, 0, {"1": "GND", "2": "Q6B"}))
     parts.append(chip_r("R12", "100k", 14.8, 113.4, 0, {"1": "Q5B", "2": "VIN_F"}))
@@ -1395,7 +1781,7 @@ def add_battery(board):
     tracks = []
     labels = [
         gr_text("2S PACK", 34.5, 59.6, size=1.0),
-        gr_text("BMS", 20.0, 78.2, size=0.8),
+        gr_text("BMS", 24.0, 76.0, size=0.8),
     ]
     # Routing is filled in by _route_battery so placement can be checked first.
     tracks += _route_battery(board)
@@ -1658,9 +2044,8 @@ def _route_battery(board):
         t += wire([bot, (bot[0], bot[1] + 1.8)], 0.4, "GND")
     t += wire([tops[0], (50.0, tops[0][1]), tops[-1]], 0.8, "BUCK5")
     t += wire([(50.0, tops[0][1]), (50.0, l2out[1])], 1.0, "BUCK5")
-    # Drain down onto the bottom bus. The bus already runs through x=62.
-    drain4 = _p(board, "Q4", "5")
-    t += wire([(drain4[0], drain4[1]), (drain4[0], BUS_BOT_Y)], 1.5, "+5V")
+    # Q4's drain stays on the unswitched island. The load FET is the only
+    # connection from that island to the buses.
 
     gate4 = _p(board, "Q4", "4")
     r8g = _p(board, "R8", "2")
@@ -1806,6 +2191,200 @@ def _route_battery(board):
     return t
 
 
+def add_power_switch(board):
+    """Series load FET after the island, plus a maintained DPDT.
+
+    Q7 source is the unswitched island (+5V: adapter OR, buck OR, USB). Its
+    drain is the load rail. The body diode points at the island, so an open
+    switch does not power the radios. One pole grounds the gate. The other
+    grounds Q8's base. Q8's collector is BUCK_EN, and its base pull-up is the
+    pack, so an open switch holds the buck off even when the island is dead.
+    Charging stays on VIN_F and does not go through Q7.
+
+    JS202011 commons are the middle pins. The ON silk is on the wired throw.
+    The C&K drawing was not available, so that throw direction is unchecked.
+    """
+    taken = {prop(fp, "Reference") for fp in kids(board, "footprint")}
+    for ref in ("Q7", "Q8", "SW1", "R22", "R23"):
+        if ref in taken:
+            raise RuntimeError(f"switch ref {ref} already on the board")
+
+    q7 = place_so8(
+        "Q7",
+        "NTMFS002P03P8Z",
+        78.0,
+        135.2,
+        0,
+        {"1": "+5V", "2": "+5V", "3": "+5V", "4": "GATE7", "5": LOAD},
+    )
+    set_prop_at(q7, "Reference", -5.2, 0.0)
+    sw = _place(
+        "Button_Switch_THT.pretty/SW_CK_JS202011CQN_DPDT_Straight.kicad_mod",
+        "Button_Switch_THT:SW_CK_JS202011CQN_DPDT_Straight",
+        "SW1",
+        "JS202011CQN",
+        26.0,
+        135.6,
+        0,
+        {"1": "GATE7", "2": "GND", "3": "SW_NC", "4": "SW_NC", "5": "GND", "6": "Q8B"},
+    )
+    set_prop_at(sw, "Reference", 2.5, -2.4)
+    q8 = _place(
+        "Package_TO_SOT_SMD.pretty/SOT-23.kicad_mod",
+        "Package_TO_SOT_SMD:SOT-23",
+        "Q8",
+        "MMBT3904",
+        48.0,
+        133.2,
+        0,
+        {"1": "Q8B", "2": "GND", "3": "BUCK_EN"},
+    )
+    r22 = _place(
+        "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
+        "Resistor_SMD:R_0603_1608Metric",
+        "R22",
+        "100k",
+        42.5,
+        128.6,
+        0,
+        {"1": "Q8B", "2": "PACK"},
+    )
+    r23 = _place(
+        "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
+        "Resistor_SMD:R_0603_1608Metric",
+        "R23",
+        "100k",
+        38.0,
+        136.4,
+        0,
+        {"1": "GATE7", "2": "+5V"},
+    )
+    for p in (q7, sw, q8, r22, r23):
+        board.append(p)
+
+    t = []
+    # Q4 drain onto the island, on the back, under the inlet.
+    drain4 = _p(board, "Q4", "5")
+    for dx in (-1.2, -0.3, 0.6, 1.5):
+        t.append(via_at(drain4[0] + dx, drain4[1] + 1.55, "+5V"))
+    t += wire(
+        [(drain4[0], drain4[1] + 1.55), (drain4[0], ISLAND_Y)],
+        ISLAND_W,
+        "+5V",
+        "B.Cu",
+    )
+    q1s = _p(board, "Q1", "1")
+    # Stop a millimetre short of the source vias. A 2.8 mm end cap on the
+    # via x reaches the load spine.
+    t += wire([(drain4[0], ISLAND_Y), (q1s[0] - 1.0, ISLAND_Y)], ISLAND_W, "+5V", "B.Cu")
+
+    # Q7 sources onto that island. Drain goes right to the spine, then up
+    # into the bottom bus. The spine is the load net.
+    s1 = _p(board, "Q7", "1")
+    s3 = _p(board, "Q7", "3")
+    if abs(s1[0] - s3[0]) > 0.05:
+        raise RuntimeError("Q7 source pads are not in a column")
+    t += wire([s3, s1], 0.8, "+5V")
+    for pad_n in ("1", "2", "3"):
+        p = _p(board, "Q7", pad_n)
+        t.append(via_at(p[0], p[1], "+5V"))
+    # Reach pad 3. Stopping on pad 1 leaves that via on one layer.
+    t += wire([(s1[0], ISLAND_Y), (s1[0], s3[1])], 2.4, "+5V", "B.Cu")
+    drain7 = _p(board, "Q7", "5")
+    t += wire([drain7, (SPINE_X, drain7[1]), (SPINE_X, BUS_BOT_Y)], 2.4, LOAD)
+
+    # USB current is the jack, not the 8 A spine. On the back it runs below
+    # the ground bus and meets the Q7 source drop. A run between the header
+    # rows walls every spoke lane off the bus. The via is left of the whole
+    # right-hand header row: the barrels are 2.54 mm apart and a 0.6 mm
+    # trace does not fit between them. Pad 2 of D1 is directly below pad 1.
+    d1 = _p(board, "D1", "1")
+    usb_x = 396.0
+    usb_y = 130.0
+    t += wire([d1, (usb_x, d1[1])], 0.6, "+5V")
+    t.append(via_at(usb_x, d1[1], "+5V"))
+    t += wire([(usb_x, d1[1]), (usb_x, usb_y), (s1[0], usb_y)], 0.6, "+5V", "B.Cu")
+
+    # Gate pull-up. The tie between the off throws crosses the gap between
+    # the switch rows, so the gate leaves above the top row.
+    gate7 = _p(board, "Q7", "4")
+    r23g = _p(board, "R23", "1")
+    r23v = _p(board, "R23", "2")
+    sw1 = _p(board, "SW1", "1")
+    above = sw1[1] - 1.4
+    t += wire([sw1, (sw1[0], above), (r23g[0], above), r23g], 0.25, "GATE7")
+    t += wire([gate7, (gate7[0], 138.4), (r23g[0], 138.4), r23g], 0.25, "GATE7")
+    # Front copper into a via that already sits on the island. A back-side
+    # run here would cross lane 58.
+    t += wire([r23v, (70.0, r23v[1]), (70.0, ISLAND_Y)], 0.25, "+5V")
+    t.append(via_at(70.0, ISLAND_Y, "+5V"))
+
+    r22b = _p(board, "R22", "1")
+    r22p = _p(board, "R22", "2")
+    sw6 = _p(board, "SW1", "6")
+    base = _p(board, "Q8", "1")
+    t += wire([sw6, (24.0, sw6[1]), (24.0, r22b[1]), r22b], 0.25, "Q8B")
+    t += wire([r22b, (r22b[0], 127.6), (base[0], 127.6), base], 0.25, "Q8B")
+    pack_via = (44.8, r22p[1])
+    t += wire([r22p, pack_via], 0.25, "PACK")
+    t.append(via_at(pack_via[0], pack_via[1], "PACK"))
+    c47 = _p(board, "C47", "2")
+    t.append(via_at(44.0, c47[1], "PACK"))
+    t += wire([(44.0, c47[1]), (pack_via[0], c47[1]), pack_via], 0.4, "PACK", "B.Cu")
+
+    # Front copper. A back-side run to the EN trace crosses the PACK hop.
+    # The feedback bar covers x=22.8..31.8 at y=112.2, the output-cap
+    # ground vias sit at y=121.75, and x=40 is a BUCK5 via. Drop on the
+    # existing EN vertical at x=22, which is left of that bar.
+    col = _p(board, "Q8", "3")
+    t += wire(
+        [
+            col,
+            (52.0, col[1]),
+            (52.0, 122.8),
+            (22.0, 122.8),
+            (22.0, 110.6),
+        ],
+        0.25,
+        "BUCK_EN",
+    )
+
+    em = _p(board, "Q8", "2")
+    t.append(via_at(em[0] + 3.2, em[1], "GND"))
+    t += wire([em, (em[0] + 3.2, em[1])], 0.3, "GND")
+
+    sw3 = _p(board, "SW1", "3")
+    sw4 = _p(board, "SW1", "4")
+    t += wire([sw3, sw4], 0.25, "SW_NC")
+
+    labels = [gr_text("ON", 21.6, 134.6, size=0.8)]
+    return t, labels
+
+
+def lift_back_legend(board):
+    """Remove the shifted V2 back logo.
+
+    It is one graphic of nine polygons and it covers the top-row barrels.
+    There is no open band on this board wide enough to hold it.
+    """
+    npoly = 0
+    kept = []
+    for c in board:
+        if (
+            isinstance(c, list)
+            and head(c) == "gr_poly"
+            and kid(c, "layer") is not None
+            and kid(c, "layer")[1].t == "B.SilkS"
+        ):
+            npoly += 1
+            continue
+        kept.append(c)
+    if npoly != 9:
+        raise RuntimeError(f"expected 9 back-legend polygons, found {npoly}")
+    board[:] = kept
+    print(f"back legend removed polys {npoly}")
+
+
 def add_node_labels(board):
     labels = []
     for fp in kids(board, "footprint"):
@@ -1939,7 +2518,10 @@ def add_gnd_return(board):
     # Lanes sit between pin columns. Bands sit between pin rows and the SMAs.
     # 18/36/58 serve the pack bay. 248 reaches the fifth clone column.
     lanes = (18.0, 36.0, 58.0, 86.0, 110.0, 145.0, 180.0, 213.0, 248.0)
-    bands = (68.0, 82.0, 96.0, 126.0)
+    # 137.9 is below the SMA center pins and the Q7 source vias, and above
+    # the board edge, so a bottom ground pad can reach lane 58 under the
+    # USB tie.
+    bands = (68.0, 82.0, 96.0, 126.0, 137.9)
     cutoff = 272.0
 
     obstacles = []
@@ -2031,7 +2613,34 @@ def add_gnd_return(board):
     def clamp_x(x):
         return min(max(x, bus_x0), bus_x1)
 
-    tracks = [seg(bus_x0, bus_y, bus_x1, bus_y, bus_w, "GND", "B.Cu")]
+    # Island drops cross y=110.6 left of the bus, so a bay spoke cannot
+    # slide along the bus to x=86. The trunk sits above those drops.
+    trunk_y = 96.0
+    trunk_x0 = 16.0
+    trunk_x1 = 86.0
+    trunk_line = [(trunk_x0, trunk_y), (trunk_x1, trunk_y), (trunk_x1, bus_y)]
+    if blocked(trunk_line, spoke_w):
+        print(" GND trunk blocked")
+        for (x1, y1), (x2, y2) in zip(trunk_line, trunk_line[1:]):
+            worst = None
+            for ox, oy, rad in obstacles:
+                d = seg_point_dist(x1, y1, x2, y2, ox, oy)
+                need = rad + spoke_w / 2.0 + CLEARANCE - 0.015
+                if d < need and (worst is None or need - d > worst[0]):
+                    worst = (need - d, d, ox, oy, rad)
+            print(
+                "   ",
+                (round(x1, 1), round(y1, 1)),
+                (round(x2, 1), round(y2, 1)),
+                "off" if off_board(x1, y1, x2, y2, spoke_w) else "",
+                None if worst is None else tuple(round(v, 2) for v in worst),
+            )
+        raise RuntimeError("GND trunk has no clear path to the bus")
+    tracks = [
+        seg(bus_x0, bus_y, bus_x1, bus_y, bus_w, "GND", "B.Cu"),
+        seg(trunk_x0, trunk_y, trunk_x1, trunk_y, spoke_w, "GND", "B.Cu"),
+        seg(trunk_x1, trunk_y, trunk_x1, bus_y, spoke_w, "GND", "B.Cu"),
+    ]
     missed = []
     for x, y, ref in targets:
         candidates = []
@@ -2043,6 +2652,15 @@ def add_gnd_return(board):
                 candidates.append(
                     [(x, y), (x, band), (lx, band), (lx, bus_y), (clamp_x(lx), bus_y)]
                 )
+        # Stop on the trunk. It already joins the bus at lane 86.
+        tx = min(max(x, trunk_x0), trunk_x1)
+        candidates.append([(x, y), (x, trunk_y), (tx, trunk_y)])
+        for lx in sorted(lanes, key=lambda lane: abs(lane - x)):
+            if lx < trunk_x0 - 0.1 or lx > trunk_x1 + 0.1:
+                continue
+            candidates.append([(x, y), (lx, y), (lx, trunk_y)])
+            for band in sorted(bands, key=lambda b: abs(b - y)):
+                candidates.append([(x, y), (x, band), (lx, band), (lx, trunk_y)])
         routed = None
         for pts in candidates:
             if not blocked(pts, spoke_w):
@@ -2238,7 +2856,7 @@ def render(board, path):
                 dot(int(x1 + (x2 - x1) * t), int(y1 + (y2 - y1) * t), rgb)
 
         for x1, y1, x2, y2, net, layer in segs:
-            col = (220, 40, 40) if net == "+5V" else (180, 80, 0) if net in ("VIN", "VIN_F", "PACK", "PACK_IN", "BUCK5") else (40, 90, 200) if net.startswith("SMA") else (20, 140, 70) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
+            col = (220, 40, 40) if net in ("+5V", LOAD) else (180, 80, 0) if net in ("VIN", "VIN_F", "PACK", "PACK_IN", "BUCK5") else (40, 90, 200) if net.startswith("SMA") else (20, 140, 70) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
             line(X(x1), Y(y1), X(x2), Y(y2), col)
         ppm = path.with_suffix(".ppm")
         with ppm.open("w") as f:
@@ -2251,11 +2869,11 @@ def render(board, path):
     dr = ImageDraw.Draw(im)
     dr.rectangle([X(BOARD_L), Y(BOARD_T), X(265.05 + DX_SHIFT), Y(BOARD_B)], outline=(0, 120, 0))
     for x1, y1, x2, y2, net, layer in segs:
-        col = (200, 30, 30) if net == "+5V" else (180, 80, 0) if net in ("VIN", "VIN_F", "PACK", "PACK_IN", "BUCK5") else (30, 80, 180) if net.startswith("SMA") else (20, 130, 60) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
-        width = 3 if net == "+5V" or (net == "GND" and layer == "B.Cu") else 1
+        col = (200, 30, 30) if net in ("+5V", LOAD) else (180, 80, 0) if net in ("VIN", "VIN_F", "PACK", "PACK_IN", "BUCK5") else (30, 80, 180) if net.startswith("SMA") else (20, 130, 60) if net == "GND" and layer == "B.Cu" else (0, 0, 0)
+        width = 3 if net in ("+5V", LOAD) or (net == "GND" and layer == "B.Cu") else 1
         dr.line([(X(x1), Y(y1)), (X(x2), Y(y2))], fill=col, width=width)
     for r, n, x, y, pw, ph, net in pads:
-        col = (255, 180, 180) if net == "+5V" else (180, 180, 255) if net == "GND" else (220, 220, 220)
+        col = (255, 180, 180) if net in ("+5V", LOAD) else (180, 180, 255) if net == "GND" else (220, 220, 220)
         dr.rectangle([X(x - pw), Y(y - ph), X(x + pw), Y(y + ph)], outline=col)
     for ref, x, y in fps:
         if ref and (ref.startswith("H") or ref.startswith("J") or ref.startswith("D") or ref.startswith("F") or ref.startswith("C3")):
@@ -2287,10 +2905,49 @@ def write_bom(board):
     (prod / "bom.csv").write_text("\n".join(bl) + "\n")
 
 
+def _trim_usb_pads(fp):
+    found = []
+    for pad in kids(fp, "pad"):
+        if pad[1].t not in ("A1", "A12", "B1", "B12"):
+            continue
+        at = kid(pad, "at")
+        size = kid(pad, "size")
+        atom_num(at, 2, -3.715)
+        atom_num(size, 2, 1.08)
+        found.append(pad[1].t)
+    if sorted(found) != ["A1", "A12", "B1", "B12"]:
+        raise RuntimeError(f"USB GND pads not all adjusted: {found}")
+
+
+def write_project_lib():
+    """Project footprints only. Standard libs stay in the KiCad table.
+
+    The V2 project table points those names at a Windows install, and a
+    project entry overrides the global one, so this table must not repeat them.
+    """
+    pretty = DEST_DIR / "footprints.pretty"
+    pretty.mkdir(parents=True, exist_ok=True)
+    so8 = copy.deepcopy(so8fl_fp())
+    (pretty / f"{SO8_FP_NAME}.kicad_mod").write_text(emit(so8) + "\n")
+    tps = make_tps56837("REF**", "TPS56837", 0, 0, 0)
+    tps[1] = A(TPS_FP_NAME, True)
+    (pretty / f"{TPS_FP_NAME}.kicad_mod").write_text(emit(tps) + "\n")
+    usb = load_local(f"Connector_USB.pretty/{USB_FP_NAME}.kicad_mod")
+    _trim_usb_pads(usb)
+    (pretty / f"{USB_FP_NAME}.kicad_mod").write_text(emit(usb) + "\n")
+    table = """(fp_lib_table
+	(version 7)
+	(lib (name "PacketHog20") (type "KiCad") (uri "${KIPRJMOD}/footprints.pretty") (options "") (descr "PacketHog-20 project footprints"))
+)
+"""
+    (DEST_DIR / "fp-lib-table").write_text(table)
+
+
 def copy_project():
     src_dir = SRC.parent
     for name in ("fp-lib-table", "sym-lib-table"):
         shutil.copy(src_dir / name, DEST_DIR / name)
+    write_project_lib()
     pro = (src_dir / "PacketHog-V2.kicad_pro").read_text()
     pro = pro.replace("PacketHog-V2", "PacketHog-20")
     (DEST_DIR / "PacketHog-20.kicad_pro").write_text(pro)
@@ -2338,8 +2995,126 @@ def fix_usb_hole_clearance(board):
             found.append(pad[1].t)
         if sorted(found) != ["A1", "A12", "B1", "B12"]:
             raise RuntimeError(f"J21 GND pads not all adjusted: {found}")
+        fp[1] = A(f"PacketHog20:{USB_FP_NAME}", True)
         return
     raise RuntimeError("J21 missing")
+
+
+# From each U.FL origin. Two vias sit on the GND pad centers. Four more sit
+# 0.75 mm to either side. Nothing else lands on these offsets.
+UFL_STITCH = (
+    (0.0, -1.475),
+    (0.0, 1.475),
+    (-0.75, -1.5),
+    (0.75, -1.5),
+    (-0.75, 1.5),
+    (0.75, 1.5),
+)
+
+
+def is_ufl_footprint(fp):
+    ref = prop(fp, "Reference") or ""
+    name = fp[1].t if isinstance(fp[1], A) else ""
+    return "U.FL" in name or (ref.startswith("K") and ref[1:].isdigit())
+
+
+def ufl_origins(board):
+    origins = []
+    for fp in kids(board, "footprint"):
+        if is_ufl_footprint(fp):
+            ox, oy, _, _ = placement(fp)
+            origins.append((ox, oy))
+    return origins
+
+
+def is_ufl_stitch_via(x, y, origins, tol=0.02):
+    for ox, oy in origins:
+        dx = x - ox
+        dy = y - oy
+        for sx, sy in UFL_STITCH:
+            if abs(dx - sx) <= tol and abs(dy - sy) <= tol:
+                return True
+    return False
+
+
+def ufl_stitch_points(origins):
+    return [(ox + sx, oy + sy) for ox, oy in origins for sx, sy in UFL_STITCH]
+
+
+def remove_ufl(board):
+    """Take the U.FL off each SMA.
+
+    V2 places one beside the jack and joins the center pins. The SMA stays.
+    The antenna is the module pigtail, so the jumper trace goes with the U.FL.
+    The GND stitch vias sat on the U.FL pads. With the pad gone they connect
+    on the back only, so they go too. New columns never receive those vias.
+    """
+    origins = ufl_origins(board)
+    nfp = 0
+    nseg = 0
+    nvia = 0
+    kept = []
+    for c in board:
+        if not isinstance(c, list):
+            kept.append(c)
+            continue
+        h = head(c)
+        if h == "footprint":
+            if is_ufl_footprint(c):
+                nfp += 1
+                continue
+        elif h == "segment":
+            net = kid(c, "net")
+            if net is not None and net[1].t.startswith("SMA"):
+                nseg += 1
+                continue
+        elif h == "via":
+            net = kid(c, "net")
+            netn = net[1].t if net is not None else ""
+            if netn.startswith("SMA"):
+                nseg += 1
+                continue
+            at = kid(c, "at")
+            x, y = num(at[1]), num(at[2])
+            if is_ufl_stitch_via(x, y, origins):
+                if netn != "GND":
+                    raise RuntimeError(f"U.FL stitch via is {netn} at ({x}, {y})")
+                nvia += 1
+                continue
+        kept.append(c)
+    if nfp != 10:
+        raise RuntimeError(f"removed {nfp} U.FL footprints, expected the 10 from V2")
+    if nseg < 10:
+        raise RuntimeError(f"removed {nseg} SMA jumpers")
+    # Ten shifted connectors, six vias each. Cloned columns are filtered earlier.
+    if nvia != 60:
+        raise RuntimeError(f"removed {nvia} U.FL stitch vias, expected 60")
+    board[:] = kept
+    print(f"removed U.FL {nfp}, SMA jumpers {nseg}, stitch vias {nvia}")
+
+
+def assert_no_ufl_stitch(board, forbidden, tol=0.02):
+    """The stitch sites must stay empty after spokes are routed."""
+    hits = []
+    for v in kids(board, "via"):
+        at = kid(v, "at")
+        x, y = num(at[1]), num(at[2])
+        for fx, fy in forbidden:
+            if abs(x - fx) <= tol and abs(y - fy) <= tol:
+                net = kid(v, "net")
+                hits.append(f"via {net[1].t if net else '?'} at ({x}, {y})")
+                break
+    for s in kids(board, "segment"):
+        for key in ("start", "end"):
+            pt = kid(s, key)
+            x, y = num(pt[1]), num(pt[2])
+            for fx, fy in forbidden:
+                if abs(x - fx) <= tol and abs(y - fy) <= tol:
+                    net = kid(s, "net")
+                    hits.append(f"segment {net[1].t if net else '?'} {key} at ({x}, {y})")
+                    break
+    if hits:
+        raise RuntimeError("U.FL stitch copper remains: " + "; ".join(hits[:8]))
 
 
 def main():
@@ -2347,19 +3122,35 @@ def main():
     board = parse(SRC.read_text())
     fps = {prop(fp, "Reference"): fp for fp in kids(board, "footprint")}
     templates = [fps[r] for r in TEMPLATE_REFS]
+    # The SMA2/SMA7 segments are the U.FL jumpers. New columns do not get them.
     template_segs = []
-    for s in kids(board, "segment"):
-        net = kid(s, "net")[1].t
-        if net in ("SMA2", "SMA7"):
-            template_segs.append(s)
+    # The template window also holds the K2/K7 stitch vias. Those are not
+    # column ground. Leave the other four vias in that window alone.
+    origins = ufl_origins(board)
     template_vias = []
+    n_stitch = 0
     for v in kids(board, "via"):
-        x = num(kid(v, "at")[1])
-        if 120.0 <= x <= 156.0:
-            template_vias.append(v)
+        at = kid(v, "at")
+        x, y = num(at[1]), num(at[2])
+        if not (120.0 <= x <= 156.0):
+            continue
+        if is_ufl_stitch_via(x, y, origins):
+            n_stitch += 1
+            continue
+        template_vias.append(v)
+    if n_stitch != 12:
+        raise RuntimeError(f"template window skipped {n_stitch} U.FL stitch vias, expected 12")
+    tmpl_origins = [(ox, oy) for ox, oy in origins if 120.0 <= ox <= 156.0]
+    forbidden = ufl_stitch_points([(ox + DX_SHIFT, oy) for ox, oy in origins])
+    for sma_x in NEW_SMA_X:
+        dx = sma_x - TEMPLATE_SMA_X
+        forbidden += ufl_stitch_points([(ox + dx, oy) for ox, oy in tmpl_origins])
     fan = fps["FAN1"]
     c1 = fps["C1"]
-    print(f"template fps {len(templates)} sma segs {len(template_segs)} vias {len(template_vias)}")
+    print(
+        f"template fps {len(templates)} sma segs {len(template_segs)} "
+        f"vias {len(template_vias)} skipped ufl stitch {n_stitch}"
+    )
 
     clones = clone_columns(board, templates, template_segs, template_vias)
     rename_existing(board)
@@ -2393,6 +3184,7 @@ def main():
     # footprint clones and graphic clones are mixed; append all
     for c in clones:
         board.append(c)
+    remove_ufl(board)
 
     tracks, labels = add_power(board, fan, c1)
     for t in tracks:
@@ -2404,6 +3196,11 @@ def main():
         board.append(t)
     for lb in b_labels:
         board.append(lb)
+    sw_tracks, sw_labels = add_power_switch(board)
+    for t in sw_tracks:
+        board.append(t)
+    for lb in sw_labels:
+        board.append(lb)
     for lb in add_node_labels(board):
         board.append(lb)
     for item in rebuild_outline(board):
@@ -2413,7 +3210,9 @@ def main():
         board.append(v)
     for t in gnd_tracks:
         board.append(t)
+    assert_no_ufl_stitch(board, forbidden)
 
+    lift_back_legend(board)
     problems = check(board)
     real = [p for p in problems if "J21/" not in p]
     print(f"clearance notes: {len(problems)} ({len(real)} besides the V2 USB fanout)")
